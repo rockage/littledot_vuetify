@@ -1,0 +1,61 @@
+package main
+
+import (
+	"fmt"
+	"math/rand"
+	"time"
+
+	"github.com/go-vgo/robotgo"
+)
+
+const (
+	low  = 0.93 // 鼠标滑行速度上下限
+	high = 1.01
+)
+
+func main() {
+
+	for {
+		bitmap := robotgo.OpenBitmap("../windows/sold_base.png")
+		Sleep(100, 200)
+		fx, fy := robotgo.FindBitmap(bitmap)
+		if fx != -1 {
+			robotgo.MoveMouseSmooth(fx, fy, low, high)
+			fmt.Println("found!")
+			break
+		} else {
+			fmt.Println("not found")
+		}
+	}
+
+}
+
+func SlowInput(str string) {
+	c := []byte(str)
+	i := 0
+	for {
+		robotgo.TypeStr(string(c[i]))
+		i++
+		if i >= len(c) {
+			break
+		}
+		Sleep(100, 200) // 随机暂停一下
+	}
+}
+
+func KeyPress(key string, times int) {
+	for i := 0; i < times; i++ {
+		robotgo.KeyTap(key)
+		Sleep(150, 300)
+	}
+}
+
+func Rnd(min int, max int) int { // 随机数产生器
+	rand.Seed(time.Now().Unix())
+	return min + rand.Intn(max-min)
+}
+
+func Sleep(min int, max int) { // 随机延时产生器
+	rand.Seed(time.Now().Unix())
+	time.Sleep(time.Duration(min+rand.Intn(max-min)) * time.Millisecond) // 毫秒
+}

@@ -1,0 +1,282 @@
+config
+data.go
+go.mod
+go.sum
+index.go
+login.go
+main.go
+mysql_con
+nohup.out
+popup.go
+r
+run
+
+Global Settings:
+AttachmentDir:  ../front/static/attachment/
+MySQLServer: @ localhost:kkndcc110
+[DBUG] 2020/10/26 01:28 API: 21 registered routes (19 GET and 2 POST)
+GET: /data/getLevel (./main.go:83)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getLevel (./data.go:39)
+GET: /data/getLocation (./main.go:82)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getLocation (./data.go:25)
+GET: /data/getGender (./main.go:81)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getGender (./data.go:11)
+GET: /userExist (./main.go:70)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.userExist (./login.go:75)
+GET: /getForums (./main.go:63)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getForums (./index.go:205)
+GET: /getPost (./main.go:65)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getPost (./index.go:218)
+GET: /secret (./main.go:67)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.secret (./login.go:25)
+GET: /login (./main.go:68)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.login (./login.go:40)
+GET: /logout (./main.go:69)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.logout (./login.go:86)
+GET: /getTotalPosts (./main.go:62)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getTotalPosts (./index.go:197)
+GET: /userZhuce (./main.go:71)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.userZhuce (./login.go:61)
+GET: /users (./main.go:72)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.users (./index.go:126)
+GET: /resetPosts (./main.go:73)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.resetPosts (./index.go:356)
+GET: /setNewPasswd (./main.go:75)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.SetNewPasswd (./popup.go:19)
+GET: /getProfile (./main.go:76)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.GetProfile (./popup.go:34)
+GET: /getUserProfile (./main.go:77)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.GetUserProfile (./popup.go:103)
+GET: /renderThreadsView (./main.go:61)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.renderThreadsView (./index.go:160)
+GET: /renderIndexMain (./main.go:60)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.renderIndexMain (./index.go:62)
+GET: /test (./main.go:58)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.test (./index.go:20)
+
+POST: /setNewPost (./main.go:64)
+      • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+      • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+      • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+      • main.setNewPost (./index.go:232)
+POST: /setProfile (./main.go:78)
+      • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+      • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+      • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+      • main.SetProfile (./popup.go:49)
+
+[DBUG] 2020/10/26 01:28 Host: server will ignore the following errors: [http: Server closed]
+Now listening on: http://192.168.1.1:8080
+Application started. Press CTRL+C to shut down.
+[INFO] 2020/10/26 01:29 200 804.141694ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 01:29 200 781.902834ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:25 200 894.999261ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:34 200 800.006113ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:34 200 790.495967ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:34 200 789.551966ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:34 200 838.700738ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:35 200 899.143959ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:35 200 788.50789ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:35 200 779.82835ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:37 200 784.77596ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:37 200 807.551575ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:37 200 796.291744ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:39 200 789.969329ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:39 200 793.214919ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:39 200 778.360041ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:40 200 806.306629ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:40 200 784.62182ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:40 200 786.594343ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:40 200 788.177325ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:40 200 802.635068ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:40 200 790.452282ms 192.168.1.91 GET /test
+[INFO] 2020/10/26 02:40 200 800.590463ms 192.168.1.91 GET /test
+config
+data.go
+go.mod
+go.sum
+index.go
+login.go
+main.go
+mysql_con
+nohup.out
+popup.go
+r
+run
+
+Global Settings:
+AttachmentDir:  ../front/static/attachment/
+MySQLServer: @ localhost:kkndcc110
+[DBUG] 2020/10/26 13:19 API: 21 registered routes (19 GET and 2 POST)
+GET: /data/getLevel (./main.go:83)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getLevel (./data.go:39)
+GET: /data/getLocation (./main.go:82)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getLocation (./data.go:25)
+GET: /data/getGender (./main.go:81)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getGender (./data.go:11)
+GET: /userExist (./main.go:70)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.userExist (./login.go:75)
+GET: /getForums (./main.go:63)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getForums (./index.go:205)
+GET: /getPost (./main.go:65)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getPost (./index.go:218)
+GET: /secret (./main.go:67)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.secret (./login.go:25)
+GET: /login (./main.go:68)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.login (./login.go:40)
+GET: /logout (./main.go:69)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.logout (./login.go:86)
+GET: /getTotalPosts (./main.go:62)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.getTotalPosts (./index.go:197)
+GET: /userZhuce (./main.go:71)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.userZhuce (./login.go:61)
+GET: /users (./main.go:72)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.users (./index.go:126)
+GET: /resetPosts (./main.go:73)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.resetPosts (./index.go:356)
+GET: /setNewPasswd (./main.go:75)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.SetNewPasswd (./popup.go:19)
+GET: /getProfile (./main.go:76)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.GetProfile (./popup.go:34)
+GET: /getUserProfile (./main.go:77)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.GetUserProfile (./popup.go:103)
+GET: /renderThreadsView (./main.go:61)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.renderThreadsView (./index.go:160)
+GET: /renderIndexMain (./main.go:60)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.renderIndexMain (./index.go:62)
+GET: /test (./main.go:58)
+     • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+     • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+     • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+     • main.test (./index.go:20)
+
+POST: /setNewPost (./main.go:64)
+      • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+      • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+      • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+      • main.setNewPost (./index.go:232)
+POST: /setProfile (./main.go:78)
+      • iris.recover (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/recover/recover.go:27)
+      • iris.logger (/root/go/pkg/mod/github.com/kataras/iris/v12@v12.2.0-alpha.0.20201012125253-8e51a296b968/middleware/logger/logger.go:45)
+      • iris-contrib.cors (/root/go/pkg/mod/github.com/iris-contrib/middleware/cors@v0.0.0-20201012144513-9d3d1026d313/cors.go:174)
+      • main.SetProfile (./popup.go:49)
+
+[DBUG] 2020/10/26 13:19 Host: server will ignore the following errors: [http: Server closed]
+[ERRO] 2020/10/26 13:19 listen tcp 192.168.1.6:8080: bind: cannot assign requested address

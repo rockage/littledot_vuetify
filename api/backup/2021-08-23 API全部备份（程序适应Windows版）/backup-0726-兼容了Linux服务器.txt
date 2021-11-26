@@ -1,0 +1,544 @@
+package main
+
+import (
+	"fmt"
+	"github.com/gobwas/ws" //Websocks工具
+	"github.com/gobwas/ws/wsutil"
+	"github.com/tebeka/selenium"
+	"github.com/tebeka/selenium/chrome"
+	"io/ioutil"
+	"math/rand"
+	"mysql_con"
+	"net"
+	"net/http"
+	"regexp"
+	"strconv"
+	"sync"
+	"time"
+)
+
+type Checker struct {
+	order_list []Main_Order
+	cookies    string
+	selenium   Selenium
+}
+
+type Main_Order struct {
+	tb_id       string
+	vendor      string
+	total_price string
+	date        string
+	note        string
+	address     string
+	state       string
+	Sub_Orders  []Sub_Order
+}
+
+type Sub_Order struct {
+	sub_id       string
+	p_name       string
+	p_vlotage    string
+	price        string
+	shipped_date string
+	express      string
+	tracking     string
+	state        int8
+}
+
+type Selenium struct {
+	wd      selenium.WebDriver
+	service *selenium.Service
+}
+
+func (s Selenium) Login() bool{
+
+}
+
+func (c Checker) connected() bool {
+
+	sm("打开发货页面")
+	Sleep(1000, 3000)
+	c.selenium.wd.Get("https://wuliu.taobao.com/user/order_list_new.htm?order_status_show=send&mytmenu=fh&spm=a217wi.openworkbeachtb_web")
+	Sleep(1000, 3000)
+	sm("正在检查特征【我是卖家 物流管理 等待发货的订单】")
+	_, err := Checker.selenium.wd.FindElement(selenium.ByXPATH, `//*[@id="J_Region"]/div[1]/div[1]`)
+
+	if err == nil {
+		return true
+	} else {
+		return false
+	}
+
+}
+
+func (c Checker) check() {
+	makeOrderList := func() {
+		Sleep(1000, 3000)
+		output, _ := c.selenium.wd.PageSource()
+		var re = regexp.MustCompile(`eyeAddress(\d{1,})`)
+		for _, m := range re.FindAllStringSubmatch(output, -1) {
+
+			fmt.Println("//*[@id='eyeAddress" + m[1] + "']")
+			element, _ := c.selenium.wd.FindElement(selenium.ByXPATH, "//*[@id='eyeAddress"+m[1]+"']")
+			Sleep(1000, 3000)
+			element.Click()
+
+		}
+		element, _ := Checker.selenium.wd.FindElement(selenium.ByXPATH, "//*[@id='J_Express']")
+		fmt.Println(element.Text())
+
+	}
+	//--------------------------------------------------------------------------------
+	addNewMainOrder := func(order Main_Order) {
+		fmt.Println("addNewMainOrder")
+	}
+
+	//--------------------------------------------------------------------------------
+	updateSubOrder := func(order Main_Order, subOrder Sub_Order) {
+		fmt.Println("updateSubOrder")
+	}
+	//--------------------------------------------------------------------------------
+	getSubOrderDetail := func(order Main_Order) {
+
+	}
+	//--------------------------------------------------------------------------------
+	compareMainOrders := func(order Main_Order) string {
+		var SQL string
+		SQL = "SELECT id,state_id from ld_order where tb_id = '" + order.tb_id + "'"
+		var rst []map[string]string
+		rst, err := mysql_con.Query(SQL)
+		if err == nil {
+			if rst != nil {
+				//订单已存在，判断state是否一致？
+				if rst[0]["state_id"] != order.state {
+					return "更新"
+				}
+			} else {
+				return "新增"
+			}
+		}
+		return "不变"
+	}
+	//--------------------------------------------------------------------------------
+	// 主体：
+	cc := 0
+	if cc == 1 {
+		t := Main_Order{}
+		tt := Sub_Order{}
+		addNewMainOrder(t)
+		updateSubOrder(t, tt)
+		getSubOrderDetail(t)
+		compareMainOrders(t)
+
+	}
+
+	if c.connected() == true {
+		makeOrderList() //创建订单列表
+		/*
+			if len(c.order_list) != 0 {
+				for i, o := range c.order_list {
+					msg := compareMainOrders(o)
+					sm("订单(" + strconv.Itoa(i) + "):" + o.tb_id + "|" + o.state + "|" + msg)
+
+					switch msg {
+					case "新增":
+						//o.tb_id = "1350419306143620488"
+						//getSubOrderDetail(o)
+
+					}
+					break
+				}
+			} else {
+				sm("ERR: 订单长度为0，抓取失败。")
+			}
+
+		*/
+
+	} else {
+		sm("ERR: 【发货】页打开失败。")
+	}
+}
+
+//-----------------------------------------------------------------------------------------------------------
+// 全局变量、常量：
+var conn net.Conn //全局conn
+var checker Checker
+var timer_stop bool
+var state = 0 //0: 停机 1：正常循环 2：忙
+
+func WebSocket() {
+	// 初始化Checker
+	checker = Checker{
+		cookies: "",
+	}
+	// 初始化 Websocks
+	var httpSrv *http.Server
+	httpSrv = &http.Server{Addr: ":8082"}
+	http.HandleFunc("/", wss)
+	httpSrv.ListenAndServe() //代码置于此行之后将不被执行，因为协程已经被Listen起来了
+}
+
+func startWsServer(w http.ResponseWriter, r *http.Request) net.Conn {
+	conn, _, _, _ = ws.UpgradeHTTP(r, w)
+	return conn
+}
+
+func timer_start() {
+	time.AfterFunc(time.Second*3, func() {
+		fmt.Println("AfterFunc")
+		t := time.NewTicker(time.Second * 2)
+		defer t.Stop()
+		for range t.C {
+			fmt.Println("Ticker")
+			if timer_stop {
+				t.Stop()
+				timer_stop = false
+			}
+		}
+	})
+}
+
+func wss(w http.ResponseWriter, r *http.Request) {
+
+	// Selenium 初始化：
+	InitChrome := func() {
+		opts := []selenium.ServiceOption{}
+		caps := selenium.Capabilities{
+			"browserName":      "chrome",
+			"pageLoadStrategy": "eager",
+		}
+		imagCaps := map[string]interface{}{
+			"profile.managed_default_content_settings.images": 2,
+		}
+		chromeCaps := chrome.Capabilities{
+			Prefs: imagCaps,
+			Path:  "",
+			Args: []string{
+				//"--headless",
+				"--no-sandbox",
+				"--disable-blink-features=AutomationControlled",
+				"--user-agent=Mozilla/ 5.0(Windows NT 10.0; WOW64) Chrome/55.0.2883.87 Safari/537.36",
+			},
+		}
+		caps.AddChrome(chromeCaps)
+		Checker.selenium.service, _ = selenium.NewChromeDriverService("./chromedriver/windows/chromedriver.exe", 9515, opts...)
+		Checker.selenium.wd, _ = selenium.NewRemote(caps, fmt.Sprintf("http://localhost:%d/wd/hub", 9515))
+		sm("打开淘宝网首页...")
+		Checker.selenium.wd.Get("https://taobao.com")
+		ok := CheckElement(`//*[@id="q"]`, 10) // 检测进入首页
+		if ok != nil {
+			sm("正确访问淘宝网首页，selenium初始化成功")
+		} else {
+			sm("无法访问淘宝网首页，selenium初始化失败！")
+		}
+
+	}
+	// CheckLogin：登录状态检查
+	CheckLogin := func() bool {
+		sm("打开 【发货】 URL")
+		Sleep(1000, 3000)
+		Checker.selenium.wd.Get("https://wuliu.taobao.com/user/order_list_new.htm?order_status_show=send&mytmenu=fh&spm=a217wi.openworkbeachtb_web")
+		sm("检查特征 【物流管理 等待发货的订单】... (5秒超时)")
+		element := CheckElement(`//*[@id="J_Region"]/div[1]/div[1]`, 5)
+		if element == nil {
+			sm("目前浏览器不在登录状态")
+			return false
+		} else {
+			sm("目前浏览器处于登录状态")
+			return true
+		}
+	}
+	// Login : 进行登录操作
+	Login := func() bool {
+
+		CheckStates := func() bool { // 多重状态检测函数， 返回值：0=错误 1=短信界面 2=卖家界面
+			var smsDiv selenium.WebElement = nil
+			var salerCenter selenium.WebElement = nil
+			var cond selenium.Condition // 因为是双重条件（是否出现短信验证或者直接转到了卖家中心），此处需要自定义个条件判断器
+			cond = func(wd selenium.WebDriver) (bool, error) {
+				wd = Checker.selenium.wd
+				smsDiv, _ = Checker.selenium.wd.FindElement(selenium.ByXPATH, `//*[@id="content"]/div/div[1]/iframe`)                                        // 注意这是包裹短信验证iframe的外层div
+				salerCenter, _ = Checker.selenium.wd.FindElement(selenium.ByXPATH, `//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`) // 卖家中心特征码
+				if smsDiv != nil || salerCenter != nil {                                                                                                     // 两者只要其中一个不为空，都算 “找到了”
+					return true, nil
+				} else {
+					return false, nil
+				}
+			}
+			err := Checker.selenium.wd.WaitWithTimeout(cond, 60*time.Second) // 限定时间内找不到指定元素，err != nil
+			if err == nil {
+				if salerCenter != nil {
+					sm("成功进入卖家中心，登录成功!")
+					return true
+				} else {
+					if smsDiv != nil {
+						sm("进入短信验证界面，准备获取短信验证码")
+						// 此处比较特殊，淘宝网在这里使用了iframe框架，selenium 无法直接获取J_GetCode元素，
+						// 必须先用SwitchFrame切换iframe，否则永远都点击不了获取短信按钮
+						// 包裹iframe的外层div ： //*[@id="content"]/div/div[1] ，参数：/iframe参数非常关键
+						sm("切换到获取短信验证码的iframe")
+						Checker.selenium.wd.SwitchFrame(smsDiv)
+						Sleep(1000, 3000)
+						smsButton, _ := Checker.selenium.wd.FindElement(selenium.ByXPATH, `//*[@id="J_GetCode"]`)
+						smsButton.Click()
+						sm("已发送短信验证码，请注意查收短信！")
+						// 因为Login运行在协程，所以外层的WSS函数仍然可以响应Websocks传过来的数据
+						ok := CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`, 60) // 卖家中心特征
+						// 我们有60S的时间去处理验证码，界面变成卖家中心: return true，60S仍然没进入卖家中心: return false
+						if ok != nil {
+							return true
+						} else {
+							return false
+						}
+					}
+				}
+			} else {
+				sm("发生意外，既没进入短信验证，也未进入卖家中心，登录失败")
+			}
+			return false
+		}
+
+		Submit := func() {
+			submit_button := CheckElement(`//*[@id="fm-login-password"]`, 5) // 最外层元素
+			Sleep(300, 500)
+			submit_button.Click()
+			Sleep(300, 500)
+			submit_button.SendKeys(string('\ue007'))
+		}
+
+		// WSS程序主体从这里开始：
+		sm("自动跳转到https://login.taobao.com")
+		sm("尝试密码登录")
+		element := CheckElement(`//*[@id="fm-login-id"]`, 5) // 用户名框
+
+		if element != nil {
+			element.Click()
+			Sleep(100, 500)
+			SlowKeys("sword_yang:carol", element) // 缓慢输入用户名
+
+		} else {
+			sm("【严重错误】 没有检测到用户名输入框，登录失败")
+			return false // 如果连用户名框、密码输入框和确定按钮都无法出现，大概率是发生了譬如断网等严重故障，直接返回false
+		}
+		element = CheckElement(`//*[@id="fm-login-password"]`, 5) // 密码框
+		if element != nil {
+			Sleep(500, 1000)
+			SlowKeys("kkndcc110", element) // 缓慢输入密码
+		} else {
+			sm("【严重错误】 没有检测到密码输入框，登录失败")
+			return false
+		}
+
+		element = CheckElement(`//*[@id="baxia-dialog-content"]`, 5) // 滑块
+		if element != nil {
+			sm("检测到滑块，开始尝试解锁")
+			Slip := func(t int) bool {
+				sm("开始第" + strconv.Itoa(t) + "次滑动解锁...")
+				Sleep(1000, 2000)
+				x_base := 920
+				y_base := 425
+				html := CheckElement(`/html`, 5) // 最外层元素
+				html.MoveTo(x_base, y_base)      //落点不能是0，0
+				Checker.selenium.wd.ButtonDown()
+				html.MoveTo(1178, 425)
+				Sleep(300, 500) // 不能到了位置马上松开鼠标，需要一点延时
+				Checker.selenium.wd.ButtonUp()
+				Sleep(1000, 2000)
+				sm("滑动结束，检查是否有效...")
+				R := false
+				ok1 := CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`, 10) // 检测有没有进入卖家中心
+				if ok1 == nil {
+					// 拉完之后有可能需要点一次提交，不要记者返回false
+					Submit()
+					ok2 := CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`, 10) // 检测有没有进入卖家中心
+					if ok2 == nil {
+						R = false
+					} else {
+						R = true
+					}
+				} else {
+					R = true
+				}
+				if R {
+					sm("第" + strconv.Itoa(t) + "次解锁成功！")
+					return true
+				} else {
+					sm("第" + strconv.Itoa(t) + "次解锁失败！")
+					return false
+				}
+
+			}
+			// 规律：淘宝网一旦出现滑块，第一次大概率是不管用的，这种情况需要进行一个卖家中心的超时判断(短暂的)，
+			// 如果发现没有反应，则点一次提交按钮，滑块就会再次出现，然后再进行多次解锁
+			slip_count := 0
+			for {
+				slip_count++
+				if slip_count >= 3 {
+					sm("连续解锁失败，换用二维码登录...")
+					break
+				}
+				if Slip(slip_count) == true {
+					break
+				}
+			}
+
+			if CheckStates() == true {
+				return true
+			} else {
+				sm("滑块解锁2次失败，尝试改用二维码登录...")
+			}
+
+		} else {
+			sm("没有检测到滑块，继续...")
+			Submit() //按下确定按钮，正常情况下，没有滑动条出现，因此offset_y 设为0
+			if CheckStates() == true {
+				return true
+			} else {
+				sm("没有检测到滑块但也未登录成功，尝试用二维码登录...")
+			}
+		}
+		Sleep(500, 1000)
+		sm("开始用二维码登录...")
+		element = CheckElement(`//*[@id="login"]/div[1]/i`, 5) // 二维码登录按钮
+		if element != nil {
+			Sleep(1000, 3000)
+			element.Click()
+			pic, _ := Checker.selenium.wd.Screenshot()
+			ioutil.WriteFile("pic.bmp", pic, 0644) //截图存盘
+			// 将图片发送到前端，手动拍照后，等待系统自动跳转到 “卖家中心” 或者 “短信验证”
+			sm("图片已发送到前端，请扫码...")
+			if CheckStates() == true {
+				return true
+			} else {
+				sm("二维码失效或其他问题，登录失败...")
+				return false
+			}
+		} else {
+			sm("【严重错误】 没有检测到二维码，登录失败")
+			return false // 发生了无法显示二维码的情况，返回false
+		}
+	} // func : Login()
+
+	// -------------------------------------------------------------
+
+	// wss主体： 开始连接Websocks
+	if conn != nil {
+		fmt.Println("old conn killed:", conn)
+		conn.Close()
+	}
+
+	wsExitDone := &sync.WaitGroup{}
+	wsExitDone.Add(1)
+	conn := startWsServer(w, r)
+	var msg_receive []byte
+	fmt.Println("new conn creative:", conn)
+
+	for {
+
+		msg_receive, _, _ = wsutil.ReadClientData(conn)
+		msg_str := string(msg_receive)
+
+		if msg_str != "" {
+			reg := regexp.MustCompile(`#rockage_cmds#(.+?)#rockage_datas#(.+)`)
+			match := reg.FindStringSubmatch(string(msg_receive))
+
+			if match != nil {
+				cmds := match[1]
+				datas := match[2]
+				fmt.Println(cmds)
+				switch cmds {
+				case "start":
+
+					Checker.check()
+
+				case "stop":
+
+				case "check":
+					if Checker.selenium.wd != nil {
+						if CheckLogin() == true {
+							sm("state suceess")
+						} else {
+							sm("state error!")
+							go Login()
+						}
+					} else {
+						sm("没有检测到Selenium")
+					}
+
+				case "restart":
+					if Checker.selenium.service != nil {
+						Checker.selenium.service.Stop() //停止之前的selenium实例
+					}
+					InitChrome() // 初始化Selenium
+
+				case "login":
+					go Login() // 采用协程方式运行Login，否则将会造成阻塞而无法接收WSS传回来的短信验证码
+
+				case "sms":
+					element1 := CheckElement(`//*[@id="J_Phone_Checkcode"]`, 5) // 短信验证码输入框
+					if element1 != nil {
+						SlowKeys(datas, element1) // 缓慢输入用户名
+						Sleep(1000, 3000)
+						element2 := CheckElement(`//*[@id="submitBtn"]`, 5) // 短信验证码确认按钮
+						element2.Click()
+						Checker.selenium.wd.SwitchFrame(nil) // nil可以将上下文从iframe返回到主界面来
+					}
+
+				default:
+
+				} // switch
+
+			} // match != nil
+		} // msg_str != ""
+	} // for
+
+}
+
+func sm(msg string) {
+	var msg_send []byte = []byte(msg)
+	wsutil.WriteServerMessage(conn, ws.OpText, msg_send)
+}
+
+func Rnd(min int, max int) int { // 随机数产生器
+	rand.Seed(time.Now().Unix())
+	return min + rand.Intn(max-min)
+}
+
+func Sleep(min int, max int) { // 随机延时产生器
+	rand.Seed(time.Now().Unix())
+	time.Sleep(time.Duration(min+rand.Intn(max-min)) * time.Millisecond) // 毫秒
+}
+
+func SlowKeys(str string, element selenium.WebElement) {
+	c := []byte(str)
+	i := 0
+	for { // 模拟输入用户名
+		element.SendKeys(string(c[i]))
+		i++
+		if i >= len(c) {
+			break
+		}
+		Sleep(200, 400) // 随机暂停一下
+	}
+}
+
+// CheckCondition ： 根据条件判断元素是否存在
+func CheckElement(strCond string, timeOut int) selenium.WebElement {
+	var element selenium.WebElement
+	var cond selenium.Condition // selenium的复杂条件模块：等待，直到条件成立或超时
+	cond = func(wd selenium.WebDriver) (bool, error) {
+		wd = Checker.selenium.wd
+		element, _ = Checker.selenium.wd.FindElement(selenium.ByXPATH, strCond)
+		if element != nil {
+			return true, nil
+		} else {
+			return false, nil
+		}
+	}
+	err := Checker.selenium.wd.WaitWithTimeout(cond, time.Duration(timeOut)*time.Second) // 限定时间内找不到指定元素，err != nil
+	if err != nil {
+		return nil
+	} else {
+		return element //如果找到元素，返回这个元素
+	}
+}

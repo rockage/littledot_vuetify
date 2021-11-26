@@ -1,0 +1,1331 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"github.com/go-vgo/robotgo"
+	"github.com/gobwas/ws" //Websocks工具
+	"github.com/gobwas/ws/wsutil"
+	"github.com/tebeka/selenium"
+	"github.com/tebeka/selenium/chrome"
+	"io/ioutil"
+	"math/rand"
+	"mysql_con"
+	"net"
+	"net/http"
+	"os"
+	"regexp"
+	"strconv"
+	"time"
+)
+
+type Page_Order struct {
+	id           string
+	tb_id        string
+	date         string
+	vendor_id    string
+	vendor_class string
+	total_price  string
+	note         string
+	red_note     string
+	red_mark     bool // 小红旗处理完毕标志
+	address      string
+	state        string
+	Sub_Orders   []Sub_Order
+}
+
+type MySQL_Order struct {
+	Page_Order
+	Flag int // 数据库端订单列表状态位
+}
+
+type Sub_Order struct {
+	sub_id       string
+	order_id     string
+	p_id         string
+	p_name       string
+	p_voltage    string
+	amount       string
+	price        string
+	shipped_date string
+	express      string
+	tracking     string
+	state        string
+}
+
+type T_Selenium struct {
+	wd      selenium.WebDriver
+	service *selenium.Service
+}
+
+func (s T_Selenium) SwitchPage(w int) bool {
+	windows, _ := Selenium.wd.WindowHandles()
+	var handle string = ""
+	for k, v := range windows {
+		if k == w {
+			handle = v
+		}
+	}
+	if handle != "" {
+		s.wd.SwitchWindow(windows[w])
+		return true
+	} else {
+		return false
+	}
+}
+
+func (s T_Selenium) SlowKeys(str string, element selenium.WebElement) {
+	c := []byte(str)
+	i := 0
+	for { // 模拟慢速输入字符
+		element.SendKeys(string(c[i]))
+		i++
+		if i >= len(c) {
+			break
+		}
+		Sleep(200, 400) // 随机暂停一下
+	}
+}
+
+func (s T_Selenium) CheckElement(strCond string, timeOut int, milliSecond ...bool) selenium.WebElement {
+	// 根据条件判断元素是否存在，单位：秒
+	var element selenium.WebElement
+	var cond selenium.Condition // selenium的复杂条件模块：等待，直到条件成立或超时
+	cond = func(wd selenium.WebDriver) (bool, error) {
+		wd = s.wd
+		element, _ = s.wd.FindElement(selenium.ByXPATH, strCond)
+		if element != nil {
+			return true, nil
+		} else {
+			return false, nil
+		}
+	}
+	var err error
+	if len(milliSecond) == 0 {
+		err = s.wd.WaitWithTimeout(cond, time.Duration(timeOut)*time.Second) // 限定时间内找不到指定元素，err != nil (如不指定milliSecond，默认秒为单位)
+	} else {
+		err = s.wd.WaitWithTimeout(cond, time.Duration(timeOut)*time.Millisecond) // 如指定milliSecond，则以毫秒为单位)
+	}
+	if err != nil {
+		return nil
+	} else {
+		return element //如果找到元素，返回这个元素
+	}
+}
+
+func (s T_Selenium) CheckLogin() bool {
+	// 登录状态检查
+	windows, _ := Selenium.wd.WindowHandles()
+
+	if windows[0] != "" {
+		sm("尝试从句柄访问")
+		s.wd.SwitchWindow(windows[0]) // 0: 卖家中心
+	} else { // 同时销毁另外两个窗口
+		if windows[1] != "" {
+			s.wd.CloseWindow(windows[1]) // 1: 物流
+		}
+		if windows[2] != "" {
+			s.wd.CloseWindow(windows[2]) // 2: 已卖出的宝贝
+		}
+	}
+	sm("检查特征 ... (5秒超时)")
+	element := s.CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[1]/div[1]/span[2]/div/div/div`, 5)
+	if element == nil {
+		sm("目前浏览器不在登录状态")
+		return false
+	} else {
+		sm("目前浏览器处于登录状态")
+		return true
+	}
+}
+
+func (s T_Selenium) ClickSms(smscode string) {
+	// 输入短信验证码并点击 （由外层WSS触发）
+	sm("收到前端短信验证码，开始输入")
+	Sleep(1000, 2000)
+	x_base := Rnd(1, 1024)
+	y_base := Rnd(1, 768)
+	html := s.CheckElement(`/html`, 30) // 此处加载较慢，超时设为30S
+	Sleep(2000, 5000)
+	html.MoveTo(x_base, y_base) //在1024*768范围内随机落点
+	Sleep(2000, 5000)
+	html.MoveTo(331, 252) // 短信输入框
+	Sleep(100, 300)
+	s.wd.ButtonDown()
+	Sleep(100, 300)
+	s.wd.ButtonUp()
+	c := []byte(smscode)
+	i := 0
+	for {
+		// 模拟输入验证码，此处需要在没有指定元素的情况下强行向界面输入字符
+		s.wd.KeyDown(string(c[i]))
+		i++
+		if i >= len(c) {
+			break
+		}
+		Sleep(100, 200)
+	}
+	Sleep(5000, 6000)
+	html.MoveTo(362, 329) // 确定按钮
+	Sleep(100, 300)
+	s.wd.ButtonDown()
+	Sleep(100, 300)
+	s.wd.ButtonUp()
+	sm("输入完毕，正在验证短信验证码...")
+}
+
+func (s T_Selenium) Login() bool {
+	// 登录
+	CheckStates := func() bool {
+		// 多重状态检测函数， 返回值：false=错误 true=短信界面 OR 卖家界面
+		var smsDiv selenium.WebElement = nil
+		var salerCenter selenium.WebElement = nil
+		var cond selenium.Condition // 因为是双重条件（是否出现短信验证或者直接转到了卖家中心），此处需要自定义个条件判断器
+		cond = func(wd selenium.WebDriver) (bool, error) {
+			wd = s.wd
+			smsDiv, _ = s.wd.FindElement(selenium.ByXPATH, `//*[@id="content"]/div/div[1]/iframe`)                                        // 注意这是包裹短信验证iframe的外层div
+			salerCenter, _ = s.wd.FindElement(selenium.ByXPATH, `//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`) // 卖家中心特征码
+			if smsDiv != nil || salerCenter != nil {                                                                                      // 两者只要其中一个不为空，都算 “找到了”
+				return true, nil
+			} else {
+				return false, nil
+			}
+		}
+		err := s.wd.WaitWithTimeout(cond, 60*time.Second) // 限定时间内找不到指定元素，err != nil
+		if err == nil {
+			if salerCenter != nil {
+				sm("成功进入卖家中心，登录成功!")
+				return true
+			} else {
+				if smsDiv != nil {
+					sm("进入短信验证界面，准备获取短信验证码")
+					// 此处比较特殊，淘宝网在这里使用了iframe框架，Selenium的SwitchFrame容易发生找不到iframe隐藏元素的问题
+					// 因此改为从html总元素开始利用绝对坐标的方式点击获取短信按钮
+					Sleep(1000, 2000)
+					x_base := Rnd(1, 1024)
+					y_base := Rnd(1, 768)
+					html := s.CheckElement(`/html`, 30) // 此处加载较慢，超时设为30S
+					Sleep(2000, 5000)
+					html.MoveTo(x_base, y_base) //在1024*768范围内随机落点
+					Sleep(100, 300)
+					html.MoveTo(593, 251) //获取短信按钮
+					Sleep(100, 300)
+					s.wd.ButtonDown()
+					Sleep(100, 300) // 不能到了位置马上松开鼠标，需要一点延时
+					s.wd.ButtonUp()
+					Sleep(1000, 2000)
+					// 因为Login运行在协程，所以外层的WSS函数仍然可以响应Websocks传过来的数据
+					ok := s.CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`, 60) // 卖家中心特征
+					// 我们有60S的时间去处理验证码，界面变成卖家中心: return true，60S仍然没进入卖家中心: return false
+					if ok != nil {
+						sm("短信验证码正确，登录成功！")
+						return true
+					} else {
+						sm("短信验证码输入错误，登录失败！")
+						return false
+					}
+				}
+			}
+		} else {
+			sm("发生意外，既没进入短信验证，也未进入卖家中心，登录失败")
+		}
+		return false
+	}
+
+	Submit := func() {
+		submit_button := s.CheckElement(`//*[@id="fm-login-password"]`, 5) // 最外层元素
+		Sleep(300, 500)
+		submit_button.Click()
+		Sleep(300, 500)
+		submit_button.SendKeys(string('\ue007'))
+	}
+
+	// ***** Login 函数主体 *****：
+	Sleep(500, 1000)
+	sm("开始访问 https://login.taobao.com")
+	s.wd.Get("https://login.taobao.com")
+	sm("尝试密码登录")
+	element := s.CheckElement(`//*[@id="fm-login-id"]`, 5) // 用户名框
+
+	if element != nil {
+		element.Click()
+		Sleep(100, 500)
+		s.SlowKeys("sword_yang:carol", element) // 缓慢输入用户名
+
+	} else {
+		sm("【严重错误】 没有检测到用户名输入框，登录失败")
+		return false // 如果连用户名框、密码输入框和确定按钮都无法出现，大概率是发生了譬如断网等严重故障，直接返回false
+	}
+	element = s.CheckElement(`//*[@id="fm-login-password"]`, 5) // 密码框
+	if element != nil {
+		Sleep(500, 1000)
+		s.SlowKeys("kkndcc110", element) // 缓慢输入密码
+	} else {
+		sm("【严重错误】 没有检测到密码输入框，登录失败")
+		return false
+	}
+
+	element = s.CheckElement(`//*[@id="baxia-dialog-content"]`, 5) // 滑块
+	if element != nil {
+		sm("检测到滑块，开始尝试解锁")
+		Slip := func(t int) bool {
+			sm("开始第" + strconv.Itoa(t) + "次滑动解锁...")
+			Sleep(1000, 2000)
+			x_base := 920
+			y_base := 425
+			html := s.CheckElement(`/html`, 5) // 最外层元素
+			html.MoveTo(x_base, y_base)        //落点不能是0，0
+			s.wd.ButtonDown()
+			html.MoveTo(1178, 425)
+			Sleep(300, 500) // 不能到了位置马上松开鼠标，需要一点延时
+			s.wd.ButtonUp()
+			Sleep(1000, 2000)
+			sm("滑动结束，检查是否有效...")
+			R := false
+			ok1 := s.CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`, 10) // 检测有没有进入卖家中心
+			if ok1 == nil {
+				// 拉完之后有可能需要点一次提交:
+				Submit()
+				ok2 := s.CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`, 10) // 检测有没有进入卖家中心
+				if ok2 == nil {
+					R = false
+				} else {
+					R = true
+				}
+			} else {
+				R = true
+			}
+			if R {
+				sm("第" + strconv.Itoa(t) + "次解锁成功！")
+				return true
+			} else {
+				sm("第" + strconv.Itoa(t) + "次解锁失败！")
+				return false
+			}
+
+		}
+		// 规律：淘宝网一旦出现滑块，第一次大概率是不管用的，这种情况需要进行一个卖家中心的超时判断(短暂的)，
+		// 如果发现没有反应，则点一次提交按钮，滑块就会再次出现，然后再进行多次解锁
+		slip_count := 0
+		for {
+			slip_count++
+			if slip_count >= 3 {
+				sm("连续解锁失败，换用二维码登录...")
+				break
+			}
+			if Slip(slip_count) == true {
+				break
+			}
+		}
+
+		if CheckStates() == true {
+			return true
+		} else {
+			sm("滑块解锁多次失败，尝试改用二维码登录...")
+		}
+
+	} else {
+		sm("没有检测到滑块，继续...")
+		Submit() //按下确定按钮，正常情况下，没有滑动条出现
+		if CheckStates() == true {
+			return true
+		} else {
+			sm("没有检测到滑块但也未登录成功，尝试用二维码登录...")
+		}
+	}
+	Sleep(500, 1000)
+	sm("开始用二维码登录...")
+	element = s.CheckElement(`//*[@id="login"]/div[1]/i`, 5) // 二维码登录按钮
+	if element != nil {
+		Sleep(1000, 3000)
+		element.Click()
+		pic, _ := s.wd.Screenshot()
+		ioutil.WriteFile("pic.bmp", pic, 0644) //截图存盘
+		// 将图片发送到前端，手动拍照后，等待系统自动跳转到 “卖家中心” 或者 “短信验证”
+		sm("图片已发送到前端，请扫码...")
+		if CheckStates() == true {
+			return true
+		} else {
+			sm("二维码失效或其他问题，登录失败...")
+			return false
+		}
+	} else {
+		sm("【严重错误】 尝试二维码登录但没有检测到二维码，登录失败")
+		return false // 发生了无法显示二维码的情况，返回false
+	}
+}
+
+func (s T_Selenium) CreateWuliuPage() bool {
+	exist := func() bool {
+		sm("正在检查物流页面特征 ... (10秒超时)")
+		element := s.CheckElement(`//*[@id="J_FilterBox"]/div[1]/ul/li[1]/span/input`, 10)
+		if element != nil {
+			return true
+		} else {
+			return false
+		}
+	}
+	Sleep(1000, 2000)
+	R := false
+	if s.SwitchPage(1) == true {
+		sm("句柄存在，无需创建")
+		Sleep(500, 1000)
+		R = exist()
+	} else {
+		s.SwitchPage(0)
+		sm("物流页句柄不存在，正在创建物流页")
+		Sleep(500, 600)
+		bitmap := robotgo.OpenBitmap(SysPath + "items_wuliu.png")
+		defer robotgo.FreeBitmap(bitmap)
+		fx, fy := robotgo.FindBitmap(bitmap)
+		if fx != -1 {
+			rx := fx + 10
+			ry := fy + 35
+			Sleep(500, 600)
+			robotgo.MoveMouseSmooth(rx+Rnd(5, 10), ry+Rnd(5, 10), low, high)
+			Sleep(500, 600)
+			robotgo.MouseClick("left", true)
+			s.SwitchPage(1)
+			Sleep(500, 600)
+			R = exist()
+		} else {
+			R = false
+		}
+	}
+	if R {
+		sm("物流页面状态正常")
+		Selenium.wd.ResizeWindow("", 1380, 1024)
+		return true
+	} else {
+		sm("物流页面状态错误")
+		return false
+	}
+}
+
+func (s T_Selenium) CreateSoldPage() bool {
+	exist := func() bool {
+		sm("正在检查已卖出的宝贝页面特征 ... (10秒超时)")
+		element := s.CheckElement(`//*[@id="auctionId"]`, 10)
+		if element != nil {
+			return true
+		} else {
+			return false
+		}
+	}
+	Sleep(1000, 2000)
+	R := false
+	if s.SwitchPage(2) == true {
+		sm("句柄存在，无需创建")
+		Sleep(500, 1000)
+		R = exist()
+	} else {
+		s.SwitchPage(0)
+		sm("已卖出的宝贝页句柄不存在，正在创建已卖出的宝贝页")
+		Sleep(500, 600)
+		bitmap := robotgo.OpenBitmap(SysPath + "items_sold.png")
+		defer robotgo.FreeBitmap(bitmap)
+		fx, fy := robotgo.FindBitmap(bitmap)
+		if fx != -1 {
+			rx := fx + 10
+			ry := fy + 35
+			Sleep(500, 600)
+			robotgo.MoveMouseSmooth(rx+Rnd(5, 10), ry+Rnd(5, 10), low, high)
+			Sleep(500, 600)
+			robotgo.MouseClick("left", true)
+			s.SwitchPage(2)
+			Sleep(500, 600)
+			R = exist()
+		} else {
+			R = false
+		}
+	}
+	if R {
+		sm("已卖出的宝贝页面状态正常")
+		s.wd.ResizeWindow("", 1380, 1024)
+		s.SwitchPage(2)
+		return true
+	} else {
+		sm("已卖出的宝贝页面状态错误")
+		return false
+	}
+}
+
+func (s T_Selenium) CreateWuliuText() string { // 爬取物流页文字 : 本页反爬比较宽松，未出现过滑块
+	var wuliu_text string
+	var fx int
+	KeyPress := func(key string, times int) {
+		for i := 0; i < times; i++ {
+			robotgo.KeyTap(key)
+			Sleep(150, 300)
+		}
+	}
+	// **** 主体代码 ****
+	s.SwitchPage(1)
+	Sleep(500, 600)
+	sm("小眼睛扫描开始...")
+	Sleep(1000, 2000)
+
+	scan_count := 0
+	for { // -> 外层翻页循环
+		scan_count++
+		Sleep(1000, 2000)
+		sm("正在扫描已物流第" + strconv.Itoa(scan_count) + "页")
+		for { // -> 内层循环 ： 找到的条目
+			bitmap := robotgo.OpenBitmap(SysPath + "smalleye.png")
+			defer robotgo.FreeBitmap(bitmap)
+			points := robotgo.FindEveryBitmap(bitmap)
+			if points != nil {
+				for _, v := range points {
+					robotgo.MoveMouseSmooth(v.X+Rnd(1, 3), v.Y+Rnd(1, 3), low, high)
+					Sleep(200, 300)
+					robotgo.MouseClick("left", true)
+					robotgo.MoveMouseSmooth(Rnd(600, 800), Rnd(600, 800), low, high) // 随机落点
+				}
+			}
+			kd := Rnd(2, 3)
+			KeyPress("down", kd) // 滚动频率，即键盘down键
+			bitmap = robotgo.OpenBitmap(SysPath + "end_point_wuliu.png")
+			fx, _ = robotgo.FindBitmap(bitmap)
+			if fx != -1 {
+				break
+			}
+		} // -> 内层for ： 条目循环
+		KeyPress("pageup", 7)
+		element, _ := s.wd.FindElement(selenium.ByXPATH, "//*[@id='J_Express']") // 页面文字
+		str, _ := element.Text()
+		wuliu_text += str
+		element_nextpage := s.CheckElement(`//*[@id="J_Express"]/tfoot/tr/td/div[2]/div/a[2]/span`, 5) //下一页按钮
+		if element_nextpage == nil {
+			sm("已无法找到[下一页]按钮，物流文字创建结束")
+			break
+		} else {
+			// wuliu base point 到 下一页按钮 距离：40, 410
+			bitmap := robotgo.OpenBitmap(SysPath + "base_point_wuliu.png")
+			defer robotgo.FreeBitmap(bitmap)
+			fx, fy := robotgo.FindBitmap(bitmap)
+			if fx != -1 {
+				rx := fx + 40
+				ry := fy + 410
+				Sleep(500, 600)
+				robotgo.MoveMouseSmooth(rx+Rnd(1, 5), ry+Rnd(1, 5), low, high)
+				Sleep(500, 600)
+				robotgo.MouseClick("left", true)
+			}
+		}
+	} // 外层for : 翻页循环
+	ioutil.WriteFile("wuliu_text.txt", []byte(wuliu_text), 0644) // 存盘 for test
+	return wuliu_text
+
+}
+
+func (s T_Selenium) CreateRedNoteText() string { // 读取订单的“小红旗”留言（即：卖家留言）
+
+	var red_note_text string
+	var sold_text string
+	var fx int
+
+	KeyPress := func(key string, times int) {
+		for i := 0; i < times; i++ {
+			robotgo.KeyTap(key)
+			Sleep(150, 300)
+		}
+	}
+
+	UnlockRedNoteSlider := func() bool {
+		wait := 0
+		state := 0
+		for {
+			bitmap := robotgo.OpenBitmap(SysPath + "punish.png")
+			defer robotgo.FreeBitmap(bitmap)
+			fx, fy := robotgo.FindBitmap(bitmap)
+			if fx != -1 {
+				rx := fx - 140 // rx, ry : 按钮坐标
+				ry := fy + 130
+				Sleep(500, 600)
+				robotgo.MoveMouseSmooth(rx+Rnd(5, 10), ry+Rnd(5, 10), low, high)
+				Sleep(500, 600)
+				robotgo.DragSmooth(rx+Rnd(270, 285), ry)
+				state = 1
+			} else {
+				break
+			}
+			wait++
+			Sleep(500, 600)
+			//fmt.Println(wait)
+			if wait >= 5 {
+				state = 2
+				break
+			}
+		}
+		switch state {
+		case 0:
+			sm("没有滑块")
+			return true
+		case 1:
+			sm("遭遇滑块，解锁成功")
+			return true
+		case 2:
+			sm("遭遇滑块，解锁失败!")
+		}
+		return false
+	}
+
+	// **** 主体代码 ****
+	s.SwitchPage(2)
+	Sleep(500, 600)
+	sm("点击等待发货按钮")
+
+	KeyPress("pageup", 5)
+	Sleep(3000, 5000)
+
+	bitmap := robotgo.OpenBitmap(SysPath + "base_point_sold.png")
+	defer robotgo.FreeBitmap(bitmap)
+	fx, fy := robotgo.FindBitmap(bitmap)
+	if fx != -1 {
+		// base_point_sold 距离 等待发货按钮距离：-625, 385
+		rx := fx - 625
+		ry := fy + 385
+		Sleep(500, 600)
+		robotgo.MoveMouseSmooth(rx+Rnd(1, 5), ry+Rnd(1, 5), low, high)
+		Sleep(500, 600)
+		robotgo.MouseClick("left", true)
+	} else {
+		sm("无法点击等待发货按钮")
+		return "error"
+	}
+
+	Sleep(1000, 2000)
+	check := Selenium.CheckElement(`//*[@id="sold_container"]/div/div[4]/div[1]/div[3]`, 5) // 确定是否真的在等待发货页面
+	if check != nil {
+		str, _ := check.GetAttribute("outerHTML")
+		r := regexp.MustCompile(`selected`) // 检测是否存在selected字样
+		m := r.FindStringSubmatch(str)
+		if len(m) > 0 {
+			sm("已确定页面位置：等待发货")
+			if s_check := UnlockRedNoteSlider(); s_check != true { // 有可能产生滑块的一步
+				sm("小红旗页遭遇滑块，模块重启")
+				return "error"
+			}
+		} else {
+			sm("【严重】 不是等待发货页面")
+			return "error"
+		}
+	}
+
+	Sleep(1000, 2000)
+	sm("扫描开始...")
+
+	// 前置工作：
+	check = s.CheckElement(`//*[@id="sold_container"]/div/div[6]/div[2]/table[1]`, 5)
+	if check == nil {
+		sm("【严重】：已卖出的宝贝页面状态异常")
+		return "error"
+	}
+
+	sm("正在创建Shadow Node")
+	Sleep(1000, 2000)
+	script := `	if (!document.getElementById("my_shadow")) {
+						s=document.createElement("shadow");
+						s.setAttribute("id","my_shadow");
+						s.setAttribute("value","");
+						document.body.append(s);	
+				}; `
+	s.wd.ExecuteScript(script, nil) // 注入一段JS ，创建一个DOM结点，可以利用这个结点将信息return回来
+
+	scan_count := 0
+	for { // -> 外层翻页循环
+		scan_count++
+		Sleep(1000, 2000)
+		sm("正在扫描已卖出的宝贝第" + strconv.Itoa(scan_count) + "页")
+		// 先拿到本页的页面TEXT:
+		element, _ := s.wd.FindElement(selenium.ByXPATH, `//*[@id="sold_container"]/div/div[6]`) // 页面文字
+		str, _ := element.Text()
+		sold_text += str
+		index_red := 5      // 小红旗元素编号从5开始递增
+		break_loop := false // 退出扫描标志
+		// 前置工作完毕，开始扫描：
+		for { // -> 内层循环 ： 找到的条目
+			bitmap := robotgo.OpenBitmap(SysPath + "redflag.png")
+			points := robotgo.FindEveryBitmap(bitmap)
+			if points != nil {
+				for _, v := range points {
+					if v.Y >= 610 && v.Y <= 740 { // 从Y轴 610-740这一段是捕获窗口，只有进入这个窗口的元素才会被捕获
+						robotgo.MoveMouseSmooth(v.X+Rnd(8, 11), v.Y+Rnd(10, 13), low, high)
+						Sleep(100, 200)
+						// 当index_red增加了之后，即使重复扫描到了上一个红旗，也会因为找不到新的index_red层而失败,所以不需要检测唯一性
+						e_red := s.CheckElement(`//*[@id="list-sold-items"]/div[`+strconv.Itoa(index_red)+`]`, 500, true) // 即时生成的小红旗div层
+						if e_red != nil {
+							index_red++
+							px := strconv.Itoa(v.X)
+							py := strconv.Itoa(v.Y)
+							script := `	var oPoint = document.elementFromPoint(` + px + `,` + py + `);
+										var oID = oPoint.getAttribute("data-reactid");
+										document.getElementById("my_shadow").setAttribute("value", oID);`
+							// my_shadow 是初始化时创建的DOM结点
+							Selenium.wd.ExecuteScript(script, nil)
+							shadow_result, err := Selenium.wd.FindElement(selenium.ByID, "my_shadow")
+
+							var order_id string
+							if err == nil {
+								//fmt.Println(shadow_result)
+								order_id, _ = shadow_result.GetAttribute("value")
+								r := regexp.MustCompile(`\$(\d{1,})\.`)
+								m := r.FindStringSubmatch(order_id) // 正则截取到订单id
+								//fmt.Println(shadow_result.GetAttribute("value"))
+								if len(m) > 0 {
+									order_id = m[1]
+								} else {
+									order_id = "!error!"
+								}
+							}
+
+							red_note, _ := e_red.Text()
+							red_note_text += "***" + "#" + order_id + "#" + red_note + "#" + "***" + "\n"
+						}
+						Sleep(500, 600)
+						robotgo.MoveMouseSmooth(Rnd(600, 800), Rnd(600, 800), low, high) // 随机落点
+						Sleep(500, 600)
+						if break_loop == true {
+							break
+						}
+					} // -> if 进入窗口
+				} // -> 屏幕上所有找到的小红旗标志
+			} // -> 内层循环
+			kd := Rnd(2, 3)
+			KeyPress("down", kd) // 滚动频率，即键盘down键
+			bitmap = robotgo.OpenBitmap(SysPath + "end_point_sold.png")
+			fx, _ = robotgo.FindBitmap(bitmap)
+			if fx != -1 {
+				break_loop = true
+			}
+		} // -> 内层for ： 条目循环
+		KeyPress("pageup", 6)
+
+		check := Selenium.CheckElement(`//*[@id="sold_container"]/div/div[6]/div[1]/div[3]/div/button[2]`, 5) // 检测下一页按钮
+		if check != nil {
+			str, _ := check.GetAttribute("outerHTML")
+			r := regexp.MustCompile(`disabled`) // 检测是否存在disabled字样
+			m := r.FindStringSubmatch(str)
+			if len(m) > 0 {
+				sm("下一页按钮已不能点击，小红旗扫描结束。")
+				break
+			} else {
+				// 点击下一页按钮:
+				bitmap := robotgo.OpenBitmap(SysPath + "base_point_sold.png")
+				defer robotgo.FreeBitmap(bitmap)
+				fx, fy := robotgo.FindBitmap(bitmap)
+				if fx != -1 {
+					// base_point_sold 距离 [下一页] 按钮距离：90, 435
+					rx := fx + 90
+					ry := fy + 435
+					Sleep(500, 600)
+					robotgo.MoveMouseSmooth(rx+Rnd(1, 5), ry+Rnd(1, 5), low, high)
+					Sleep(500, 600)
+					robotgo.MouseClick("left", true)
+					if s_check := UnlockRedNoteSlider(); s_check != true { // 有可能产生滑块的一步
+						sm("小红旗页遭遇滑块，模块重启")
+						return "error"
+					}
+				} else {
+					sm("无法点击等待发货按钮")
+					return "error"
+				} // -> if fx
+			} // -> if disable
+		} // -> if button exist
+	} // 外层for : 翻页循环
+	ioutil.WriteFile("red_note_text.txt", []byte(red_note_text), 0644) // 存盘 for test
+	ioutil.WriteFile("sold_text.txt", []byte(sold_text), 0644)         // 存盘 for test
+	return red_note_text
+}
+
+func (s T_Selenium) MakePageOrders(wuliu_text string, sold_text string, red_note_text string) []Page_Order {
+
+	// 预处理小红旗留言 (red_note_text)
+	type Red_Note struct {
+		order_id string
+		red_note string
+	}
+	var red_notes []Red_Note
+	r_reds := regexp.MustCompile(`\*\*\*(.+?)\*\*\*`)
+	m_reds := r_reds.FindAllString(red_note_text, -1)
+	for _, v := range m_reds {
+		r_red := regexp.MustCompile(`\*\*\*#(\d{1,})#(.+?)#\*\*\*`)
+		m_red := r_red.FindStringSubmatch(v)
+		if len(m_red) > 2 {
+			var one Red_Note
+			one.order_id = m_red[1]
+			one.red_note = m_red[2]
+			red_notes = append(red_notes, one)
+		}
+	}
+
+	// 预处理订单真实价格（sold_text） PS: 真实价格 = 改价后的价格+运费
+	type Real_Price struct {
+		order_id   string
+		real_price string
+	}
+	var real_price []Real_Price
+	r_price := regexp.MustCompile(`(订单号:\s[\s\S]*?)###333###666###999###`) // 切割物流字符串（大段）
+	m_price := r_price.FindAllString(sold_text, -1)
+	//	fmt.Println("-------------", m_price) // 订单与订单之间，返回组
+
+	for k, v := range m_price {
+
+		fmt.Println("found:", k)
+		fmt.Println(v)
+
+		r := regexp.MustCompile(`订单号:\s(\d{1,})`)
+		m := r.FindStringSubmatch(v)
+		var one Real_Price
+		if len(m) > 0 {
+			one.order_id = m[1]
+		}
+		r = regexp.MustCompile(`(?m)^发货[\r\n]￥(\d{1,})\.\d{1,}`)
+		m = r.FindStringSubmatch(v)
+		fmt.Println("len m=", len(m))
+		fmt.Println(m)
+
+		fmt.Println("----------------")
+
+		if len(m) > 0 {
+			one.real_price = m[1]
+		}
+		real_price = append(real_price, one)
+
+	}
+
+	fmt.Println(real_price)
+
+	//物流页正则
+	sm("开始正则物流页文字，生成页面端订单")
+	var SQL string
+	type Product_List struct { // 将产品库预读到本地
+		p_id      string
+		p_name    string
+		tb_name   string
+		isvoltage string
+	}
+	SQL = "select id, name, tb_name, isvoltage from ld_products"
+	rst, _ := mysql_con.Query(SQL)
+	var ProductList = make([]Product_List, len(rst))
+	for k, v := range rst {
+		ProductList[k].p_id = v["id"]
+		ProductList[k].p_name = v["name"]
+		ProductList[k].tb_name = v["tb_name"]
+		ProductList[k].isvoltage = v["isvoltage"]
+	}
+
+	type Vendor_List struct { // 将经销商库预读到本地
+		vendor_id      string
+		vendor_tb_name string
+	}
+
+	SQL = "select id, taobao from ld_vendor where class = 2"
+	rst, _ = mysql_con.Query(SQL)
+	var VendorList = make([]Vendor_List, len(rst))
+	for k, v := range rst {
+		VendorList[k].vendor_id = v["id"]
+		VendorList[k].vendor_tb_name = v["taobao"]
+	}
+
+	var orders []Page_Order
+
+	reg := regexp.MustCompile(`(订单编号：[\s\S]*?)###333###666###999###`) // 切割物流字符串（大段）
+	match := reg.FindAllString(wuliu_text, -1)                        // 订单与订单之间，返回组
+
+	orders = make([]Page_Order, len(match))
+
+	for k, v := range match {
+
+		r := regexp.MustCompile(`订单编号：(\d{1,})[\r\n]创建时间：(.+?)[\r\n]`)
+		m := r.FindStringSubmatch(v)
+
+		if len(m) > 0 {
+			orders[k].tb_id = m[1]
+			orders[k].date = m[2]
+			orders[k].vendor_id = "84" // 默认经销商：自营
+			orders[k].vendor_class = "1"
+			orders[k].state = "2" //待发货
+		}
+
+		r = regexp.MustCompile(`收货信息：[\r\n](.+?)[\r\n]`)
+		m = r.FindStringSubmatch(v)
+		// 合成淘宝风格收货地址：
+		r_add := regexp.MustCompile(`^(.+?)\s{3}(.+?),.+?,\s{1}(.+?),\s{1}(.+?)$`)
+		m_add := r_add.FindStringSubmatch(m[1])
+		if len(m_add) > 0 {
+			r = regexp.MustCompile(` `)
+			trim_space := r.ReplaceAllString(m_add[2], "") //去掉原文里的空格
+			address := "{" + m_add[1] + "}" + " " + m_add[3] + "，" + m_add[4] + "，" + trim_space
+			orders[k].address = address
+			// 处理经销商
+			tb_name := m_add[1]
+			for _, v := range VendorList {
+				if tb_name == v.vendor_tb_name {
+					orders[k].vendor_id = v.vendor_id
+					orders[k].vendor_class = "2" // 搜出来的默认就是经销商
+					//fmt.Println("found vendor: ", tb_name, " ->", v.vendor_id)
+					break
+				}
+			}
+		} else {
+			orders[k].address = "地址抓取错误，订单编号：" + orders[k].tb_id
+			//fmt.Println(orders[k].address)
+		}
+
+		r = regexp.MustCompile(`买家留言：[\r\n](.+?)[\r\n]`)
+		m = r.FindStringSubmatch(v)
+		if len(m) > 0 {
+			orders[k].note = "[" + m[1] + "]"
+		}
+		// 合并小红旗留言
+		for _, v := range red_notes {
+			if orders[k].tb_id == v.order_id {
+				orders[k].note += "[" + v.red_note + "]"
+			}
+		}
+		// 处理子订单（即产品列表）：
+		var suborders []Sub_Order
+		r = regexp.MustCompile(`[\r\n](.+?)[\r\n](颜色分类：\s(.+?)[\r\n]){0,1}(\d{1,}).\d{1,}×\s(\d{1,})`)
+		mg := r.FindAllStringSubmatch(v, -1) //注意：返回match组，要用FindAllStringSubmatch并加上-1参数
+		if len(mg) > 0 {
+			suborders = make([]Sub_Order, len(mg))
+			var total_price int
+			for k2, m2 := range mg {
+				suborders[k2].p_name = m2[1] + m2[3]
+
+				p_name := m2[1] + m2[3]       // p_name 由宝贝标题 + 宝贝SKU构成
+				suborders[k2].p_id = "38"     // 默认ID: 自定义
+				suborders[k2].p_name = p_name // 默认情况：p_id = 38 (自定义) p_name = 抓到的文字
+				suborders[k2].p_voltage = "1" // 默认电压：国规
+				//此处处理p_id 和 p_name 的对应关系
+
+				for _, p := range ProductList {
+					if p_name == p.tb_name { // 如产品能在数据库中找到，用数据库的
+						suborders[k2].p_id = p.p_id
+						suborders[k2].p_name = p.p_name
+						if p.isvoltage == "1" {
+							// PS: 1国 2美 3英 4欧 5未知 6空 处理经销商电压，从留言中大致分析，以防止经销商拍下后不标电压的情况
+							if orders[k].vendor_class == "2" {
+								suborders[k2].p_voltage = "5" // 如果接下来的正则全部不通过 或 没有留言，则默认为"未知"以提醒发货的时候注意
+								if orders[k].note != "" {
+									r := regexp.MustCompile(`(美|110|US|Us|us)`)
+									m := r.FindStringSubmatch(orders[k].note) //返回：值
+
+									if len(m) > 0 {
+										suborders[k2].p_voltage = "2"
+										//fmt.Println("found 美规110！")
+									}
+									r = regexp.MustCompile(`(英|UK|Uk|uk|港|HK|Hk|hk)`)
+									m = r.FindStringSubmatch(orders[k].note) //返回：值
+									if len(m) > 0 {
+										suborders[k2].p_voltage = "3"
+										//fmt.Println("found 英规220！")
+									}
+									r = regexp.MustCompile(`(欧|EU|Eu|eu|歐|法|德)`)
+									m = r.FindStringSubmatch(orders[k].note) //返回：值
+									if len(m) > 0 {
+										suborders[k2].p_voltage = "4"
+										//fmt.Println("found 欧规220！")
+									}
+								}
+							}
+
+						} else {
+							suborders[k2].p_voltage = "6" // 如产品本身不插电，则电压选项为空
+						}
+						//fmt.Println("found product : ", p_name, " ->", p.p_name)
+						break
+					}
+				}
+
+				p, _ := strconv.Atoi(m2[4]) // 单价
+				q, _ := strconv.Atoi(m2[5]) // 数量
+				intPrice := p * q
+				total_price += intPrice
+				strPrice := strconv.Itoa(intPrice)
+				suborders[k2].price = strPrice
+				suborders[k2].shipped_date = ""
+				suborders[k2].express = ""
+				suborders[k2].tracking = ""
+				suborders[k2].state = "2"
+				suborders[k2].amount = m2[5]
+			} // -> for 子订单
+			orders[k].Sub_Orders = suborders // 子订单附加到主订单
+		} // -> if 子订单状态
+
+		// 订单总价处理
+		for _, v := range real_price {
+			if orders[k].tb_id == v.order_id {
+				orders[k].total_price += v.real_price
+			}
+		}
+	} // -> for 主订单
+	return orders
+}
+
+func (s T_Selenium) MakeMySQLOrders() []MySQL_Order {
+	// 生产订单列表（mysql端）
+	SQL := "SELECT id, date, price, tb_id, note, address, state_id,(SELECT group_concat(id,'|',item_describe,'|', product_id, '|', amount,'|', voltage,'|', state,'|', price) FROM ld_order_suborder where ld_order_suborder.order_id = ld_order.id) as p_info FROM ld_order where state_id = 2 and tb_id <> ''"
+	rst, _ := mysql_con.Query(SQL)
+	OrdersMySQL := make([]MySQL_Order, len(rst))
+	for k, v := range rst {
+		OrdersMySQL[k].id = v["id"]
+		OrdersMySQL[k].tb_id = v["tb_id"]
+		OrdersMySQL[k].total_price = v["price"]
+		OrdersMySQL[k].date = v["date"]
+		OrdersMySQL[k].note = v["note"]
+		OrdersMySQL[k].address = v["address"]
+		OrdersMySQL[k].state = v["state"]
+		r := regexp.MustCompile(`(.+?),`)         // 切分逗号，返回组，样本：7769|MK2 6J1(普)|2|2|1|2|1460,7770|MK3|6|3|2|2|3840
+		m := r.FindAllString(v["p_info"]+",", -1) // 末端加个逗号以能适配正则（PS:这是一个简化处理方案）
+		SubOrders := make([]Sub_Order, len(m))
+		for k1, v1 := range m {
+			r := regexp.MustCompile(`(\d{1,})\|(.+?)\|(\d{1,})\|(\d{1,})\|(\d{1,})\|(\d{1,})\|(\d{1,})`) // 切分 | 号，返回：值
+			m = r.FindStringSubmatch(v1)
+			SubOrders[k1].order_id = v["id"] // 子订单order_id = 主订单id
+			SubOrders[k1].sub_id = m[1]
+			SubOrders[k1].p_name = m[2]
+			SubOrders[k1].p_id = m[3]
+			SubOrders[k1].amount = m[4]
+			SubOrders[k1].p_voltage = m[5]
+			SubOrders[k1].state = m[6]
+			SubOrders[k1].price = m[7]
+		}
+		OrdersMySQL[k].Sub_Orders = SubOrders
+	}
+	return OrdersMySQL
+}
+
+func (s T_Selenium) Compare(pageOrders []Page_Order, mysqlOrders []MySQL_Order) {
+	// 比对1：页面 -> mySQL (页面有而数据库没有，则新增这条订单到数据库)
+	for _, page := range pageOrders {
+		addNew := true
+		for _, mysql := range mysqlOrders {
+			if page.tb_id == mysql.tb_id {
+				addNew = false
+				break
+			}
+		}
+		if addNew {
+			var neworder MySQL_Order
+			neworder.Page_Order = page //新增订单数据来源自页面订单
+			neworder.Flag = 1          // 改变新增订单的flag = 1 , PS: 1=新增 2=屏蔽 3=修改
+			mysqlOrders = append(mysqlOrders, neworder)
+			fmt.Println("新增：", page.tb_id)
+		}
+	}
+	// 比对2：mySQL -> 页面 （数据库有而页面没有，则在数据库中取消这条订单）
+	for k, mysql := range mysqlOrders {
+		disable := true
+		for _, page := range pageOrders {
+			if mysql.tb_id == page.tb_id {
+				disable = false
+				break
+			}
+		}
+		if disable {
+			mysqlOrders[k].Flag = 2 // 此订单需要屏蔽
+			fmt.Println("屏蔽：", mysql.tb_id)
+		}
+	}
+
+	// 将变化写入数据库
+	var SQL string
+	for _, v := range mysqlOrders {
+		switch v.Flag {
+		case 1: // 新增
+			sm("正在新增订单：" + v.tb_id)
+			SQL = "INSERT INTO ld_order " +
+				"(date, vendor_id, tb_id, price, state_id, note, address)" +
+				" VALUES " +
+				"('" + v.date + "'," + v.vendor_id + ", " + "'" + v.tb_id + "', " + v.total_price + ", " +
+				"2, '" + v.note + "', '" + v.address + "')"
+			newOrderID := mysql_con.Exec(SQL) // 返回一个新的OrderID
+
+			for _, v2 := range v.Sub_Orders {
+				SQL = "INSERT INTO ld_order_suborder " +
+					"(order_id, product_id, vendor_id, item_describe, voltage, amount, price, shiped_date, state)" +
+					" VALUES " +
+					"(" + newOrderID + ", " + v2.p_id + ", " + v.vendor_id + ", '" + v2.p_name + "', " +
+					v2.p_voltage + ", " + v2.amount + ", " + v2.price + ", '1900-01-01 00:00:00', " + v2.state + ")"
+				mysql_con.Exec(SQL) // 无需返回ID
+			}
+
+		case 2: // 屏蔽
+			sm("正在关闭订单：" + v.tb_id)
+			SQL = "UPDATE ld_order SET state_id = 12 WHERE id = " + v.id // 主订单修改
+			fmt.Println(SQL)
+			mysql_con.Exec(SQL)
+			SQL = "UPDATE ld_order_suborder SET state = 12 WHERE order_id = " + v.id // 子订单修改, v.id = 主订单id (order_id)
+			fmt.Println(SQL)
+			mysql_con.Exec(SQL)
+
+		case 3: // 更新
+		}
+	}
+	sm("本次更新完毕!")
+}
+
+func (s T_Selenium) Check() bool {
+
+	// ***** Check函数主体 *****：
+	sm("cls") // 客户端清屏
+	// 1: 检测登录
+	if s.CheckLogin() != true {
+		sm("ERR: 登录验证失败。")
+		return false
+	}
+
+	// 2 : 创建物流页面
+	if s.CreateWuliuPage() != true {
+		sm("创建WuliuPage异常退出！")
+		return false
+	}
+	// 3 : 创建已卖出的宝贝页面
+	if s.CreateSoldPage() != true {
+		sm("创建SoldPage异常退出！")
+		return false
+	}
+
+	// 4: 抓取物流页（裸文本）
+	PageWuliuText := s.CreateWuliuText()
+	if PageWuliuText == "error" {
+		sm("截取物流页文字异常退出！")
+		return false
+	}
+
+	// 5: 抓取小红旗留言（裸文本）
+	PageReadNoteText := s.CreateRedNoteText()
+	if PageReadNoteText == "error" {
+		sm("截取已卖出宝贝文字异常退出！")
+		return false
+	}
+	/*
+		OrdersPage := s.MakePageOrders(PageWuliuText, PageReadNoteText) // 将裸文字转换为页面端订单列表
+		fmt.Println(OrdersPage)
+		OrdersMySQL := s.MakeMySQLOrders() // 生成数据库端订单
+		s.Compare(OrdersPage, OrdersMySQL) // 比对数据库并写入变化
+	*/
+	sm("恭喜！订单抓取全流程结束。")
+	return true
+}
+
+// ***** 全局变量、常量 ***** ：
+const (
+	low  = 0.93 // 鼠标滑行速度上下限
+	high = 1.01
+	myos = "windows"
+	//myos = "linux" // win or linux 总开关
+)
+
+var SysPath string
+var Conn net.Conn
+var Selenium T_Selenium
+
+func WebSocket() {
+	// 初始化 Websocks
+	var httpSrv *http.Server
+	httpSrv = &http.Server{Addr: ":8082"}
+	http.HandleFunc("/", WSS)
+	httpSrv.ListenAndServe() //代码置于此行之后将不被执行，因为协程已经被Listen起来了
+}
+
+func WSS(w http.ResponseWriter, r *http.Request) {
+	// Websocks程序主体处理
+	if Conn != nil {
+		fmt.Println("Old Conn Destroyed:", Conn)
+		Conn.Close()
+	}
+
+	Conn := startWsServer(w, r)
+	var msg_receive []byte
+	fmt.Println("New Conn Created:", Conn)
+
+	for {
+
+		msg_receive, _, _ = wsutil.ReadClientData(Conn)
+		msg_str := string(msg_receive)
+
+		if msg_str == "" {
+			continue
+		}
+
+		reg := regexp.MustCompile(`#rockage_cmds#(.+?)#rockage_datas#(.+)`)
+		match := reg.FindStringSubmatch(string(msg_receive))
+
+		if match == nil {
+			continue
+		}
+
+		cmds := match[1]
+		datas := match[2]
+		fmt.Println(cmds)
+
+		switch cmds {
+		case "start":
+
+			Selenium.Check()
+
+		case "stop":
+
+			wuliu_text := ReadAndReg("wuliu_text.txt", `订单编号：\d{1,}`)
+			sold_text := ReadAndReg("sold_text.txt", `订单号:\s\d{1,}`)
+			red_note_text := ReadAndReg("red_note_text.txt")
+
+			var se T_Selenium
+			OrdersPage := se.MakePageOrders(wuliu_text, sold_text, red_note_text) // 将裸文字转换为页面端订单列表
+			fmt.Println(OrdersPage)
+
+			OrdersMySQL := se.MakeMySQLOrders() // 生成数据库端订单
+			se.Compare(OrdersPage, OrdersMySQL) // 比对数据库并写入变化
+
+		case "check":
+			if Selenium.wd != nil {
+				if Selenium.CheckLogin() == true {
+				} else {
+					go Selenium.Login()
+				}
+			} else {
+				sm("没有检测到Selenium")
+			}
+
+		case "restart":
+			if Selenium.service != nil {
+				Selenium.service.Stop() //停止之前的selenium实例
+			}
+			startChrome() // 初始化Selenium
+
+		case "login":
+
+		case "sms":
+			Selenium.ClickSms(datas)
+
+		case "coordinate":
+
+		default:
+
+		}
+
+	}
+}
+
+func startWsServer(w http.ResponseWriter, r *http.Request) net.Conn {
+	Conn, _, _, _ = ws.UpgradeHTTP(r, w)
+	return Conn
+}
+
+func startChrome() {
+	opts := []selenium.ServiceOption{}
+	caps := selenium.Capabilities{
+		"browserName":      "chrome",
+		"pageLoadStrategy": "eager",
+	}
+	imagCaps := map[string]interface{}{
+		//		"profile.managed_default_content_settings.images": 2,
+	}
+
+	chromeCaps := chrome.Capabilities{
+		Prefs:           imagCaps,
+		Path:            "",
+		ExcludeSwitches: []string{"enable-automation"}, // 重点
+		Args: []string{
+			//"--headless",
+			`--window-position=-7,0`,
+			`--window-size=1380,1024`,
+			"--no-sandbox",
+			"--disable-blink-features=AutomationControlled", // 重点
+			"--user-agent=Mozilla/ 5.0(Windows NT 10.0; WOW64) Chrome/55.0.2883.87 Safari/537.36",
+		},
+	}
+	caps.AddChrome(chromeCaps)
+
+	if myos == "windows" {
+		Selenium.service, _ = selenium.NewChromeDriverService("./windows/chromedriver.exe", 9515, opts...)
+		SysPath = "./windows/"
+	} else {
+		Selenium.service, _ = selenium.NewChromeDriverService("./linux/chromedriver", 9515, opts...)
+		SysPath = "./linux/"
+	}
+
+	Selenium.wd, _ = selenium.NewRemote(caps, fmt.Sprintf("http://localhost:%d/wd/hub", 9515))
+
+	Selenium.wd.Get("https://taobao.com")
+	Selenium.wd.ResizeWindow("", 1380, 1024)
+
+	ok := Selenium.CheckElement(`//*[@id="q"]`, 10) // 检测进入首页
+	if ok != nil {
+		sm("正确访问淘宝网首页，selenium初始化成功")
+	} else {
+		sm("无法访问淘宝网首页，selenium初始化失败！")
+	}
+
+}
+
+func sm(msg string) {
+	var msg_send []byte = []byte(msg)
+	wsutil.WriteServerMessage(Conn, ws.OpText, msg_send)
+}
+
+func Rnd(min int, max int) int { // 随机数产生器
+	rand.Seed(time.Now().Unix())
+	return min + rand.Intn(max-min)
+}
+
+func Sleep(min int, max int) { // 随机延时产生器
+	rand.Seed(time.Now().Unix())
+	time.Sleep(time.Duration(min+rand.Intn(max-min)) * time.Millisecond) // 毫秒
+}
+
+func ReadAndReg(fileName string, args ...string) string {
+	var regMark string = ""
+	if len(args) > 0 {
+		regMark = args[0]
+	}
+
+	file, _ := os.Open(fileName)
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	pre_line := ""
+	all := ""
+
+	for scanner.Scan() {
+		cur_line := scanner.Text()
+
+		trim_reg := regexp.MustCompile(`\r`) // 去掉原文里的\r ， 否则无法正则
+		trim_r := trim_reg.ReplaceAllString(cur_line, "")
+		cur_line = trim_r
+
+		if regMark != "" {
+			r := regexp.MustCompile(regMark)
+			m := r.FindStringSubmatch(cur_line) //返回：值
+			if len(m) > 0 {
+				pre_line += "\n###333###666###999###\n" // 自定义切割标记
+			}
+		}
+		all += pre_line + "\n"
+		pre_line = cur_line
+
+	}
+	if regMark != "" {
+		all += "\n###333###666###999###\n" // 文件结尾再加一行标记
+	}
+	return all
+}
+
+/*
+func startTimer() {
+	time.AfterFunc(time.Second*3, func() {
+		fmt.Println("AfterFunc")
+		t := time.NewTicker(time.Second * 2)
+		defer t.Stop()
+		for range t.C {
+			fmt.Println("Ticker")
+			if timer_stop {
+				t.Stop()
+				timer_stop = false
+			}
+		}
+	})
+}
+*/

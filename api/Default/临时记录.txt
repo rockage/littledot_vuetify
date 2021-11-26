@@ -1,0 +1,84 @@
+BUG:
+#DONE: crawler.go -> 以mysql.note为准的话，无需update
+#DONE: crawler.go -> soldpage改用新的超时方式
+#DONE ：order.vue -> 切换视图的时候有严重问题 
+#DONE ：viewer.html -> 未能按照预期自动刷新
+#DONE index.go -> (20210918已选方案2，问题解决)
+  方案1：ld_order也增加一个字段shipped_date，当子订单全部发货完毕后把发货时间记录在上面，否则跨月统计销量很麻烦
+  方案2：crawler.go -> 从wuliu page得到的订单总价 和 小红旗订单总价（真实的）的差值，加在sub_order的某个产品单价里，销售统计还是以suborder为主查询
+#DONE: ! charts.vue -> 本月总销售量不准确 (随上一个问题的方案2一起解决)
+
+! order.vue -> 订单状态改为12无效
+! crawler.go -> 需解决时间太长session丢失登录状态问题
+！crawler.go -> 考虑一种情况：如果抓单中途产生了error，定时器又没有关闭怎么办？
+！crawler.go -> 优化：不是新订单不需要反复扫描？（冲突：小红旗留言不能更新）
+! crawler.go -> 登录页不能发送验证码 
+! crawler.go -> 无限：“已卖出的宝贝页加载严重超时，准备重启”
+！index.go -> 考虑改进产品排序算法，未改动的顺序不update
+
+未实现的功能：
+#Done: crawler.go -> 发货自动打开淘宝页面
+#DONE: product.vue -> 排序改用原始办法，即在文字框直接输入序号，因为拖拽操作虽然好看，实际操作烦不胜烦
+! products.vue -> 需要增加电源选项（有的产品不需要电源线）
+
+逻辑冲突:
+1. 数据库已发货，然后又退货，数据库不再更新。后果：这笔销售记录会被统计为收入（尚未解决）
+2. 手工添加留言，数据库订单就有了note，但是并没有在页面执行这个操作，造成二次截取页面订单的时候note是空字符串 比对 手工添加的note字符串，
+而默认逻辑又是以页面数据为标准，后果：手工添加的备注将会被冲刷。老版本是不对note备注信息进行比对，优点是手工添加的备注不会被清，
+缺点是如果订单在页面手工添加了小红旗信息，也没办法更新到数据库
+# 解决方案：如页面订单留言为空，则不更新
+
+
+#### chromedriver无法启动的诡异问题
+解决：貌似和本地chrome版本有关，到chromedriver官网下载一个对应chrome 93版本的chromedriver问题解决
+此问题只影响本地调试，因为Linux下并无任何问题。因此，需要将本地Windows 10 Chrome浏览器的自动更新关闭？
+
+#### 切换本地测试和服务器的几个地方：
+1. D:\Sync\Code\littledot_vuetify\api\crawler.go :  myos = 
+2. D:\Sync\Code\littledot_vuetify\main.js : axios.defaults.baseURL =
+3: D:\Sync\Code\Chrome\Cookie\clawer.js :  let base =
+4. D:\Sync\Code\littledot_vuetify\api\mysql_con.go : MySQLServer =
+
+
+
+
+#### ClipboardJS到底是怎么工作的？
+第一种：自触发
+1. 给文字元素定个class 比如：cli, 再给元素添加一个属性：
+	 <div  class="cli"  :data-clipboard-text="要拷贝的文字"> COPY! </div>
+2. 代码这边：var clipboard = new ClipboardJS(".cli")  // cli既是触发器也是文字
+3. FAQ：
+问题A: 需要放置第二个元素来做专门的触发器吗？ 答：不需要
+问题B: 触发条件时什么？答：click
+
+第二种：由其他元素（触发器）触发
+1. 给文字源设置一个class 或者 id， 如txt 
+          <input  id = "txt">  Hello World   </input>
+2. 给触发器定个id :
+          <button id="action"  data-clipboard-target=".txt" > COPY! </button>
+3. 代码这边：new Clipboard('.action')
+PS： class拾取器用 #， id拾取器用 .
+
+
+####窗口切换
+			windows, _ := Selenium.wd.WindowHandles()
+			Selenium.wd.SwitchWindow(windows[1])
+			teste := Selenium.CheckElement(`//*[@id="fm-login-password"]`, 1)
+			teste.Click()
+			Sleep(2000, 3000)
+			Selenium.wd.SwitchWindow(windows[0])
+			teste = Selenium.CheckElement(`//*[@id="q"]`, 1)
+			teste.Click()
+
+			for _, v := range windows {
+				fmt.Println(v)
+			}
+
+
+
+#### Centos下运行要点
+1. 本机要安装Chrome，这就意味着本机还要装一个x11桌面环境，centos下为gnome
+2. Selenium配置需要改为Linux Chromedriver核
+3. chromedriver 一定要 chmod 777 chromedriver，否则报错
+4. 用joevnc普通账号登录，否则chrome起不来
+5. go代码必须通过ftp直接传到joevnc的家目录再重新编译，不能直接拷贝root的

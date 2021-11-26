@@ -1,0 +1,548 @@
+package main
+
+import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"fmt"
+	"github.com/axgle/mahonia" //GBK转UTF8工具
+	"github.com/gobwas/ws"     //Websocks工具
+	"github.com/gobwas/ws/wsutil"
+	"github.com/tebeka/selenium"
+	"github.com/tebeka/selenium/chrome"
+	"io"
+	"math"
+	"math/rand"
+	"mysql_con"
+	"net"
+	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	seleniumPath = `D:\Sync\Code\littledot_vuetify\api\chromedriver_win32\chromedriver.exe`
+	port         = 9515
+)
+
+var conn net.Conn //全局conn
+var op ws.OpCode
+var httpSrv *http.Server
+
+var cmds, cookies string
+var timer_stop bool
+var state = 0 //0: 停机 1：正常循环 2：忙
+
+func startHttpServer(wg *sync.WaitGroup) *http.Server {
+	srv := &http.Server{Addr: ":8082"}
+
+	http.HandleFunc("/", wss)
+
+	go func() {
+		defer wg.Done() // let main know we are done cleaning up
+		//		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+		//		}
+		srv.ListenAndServe()
+	}()
+	return srv
+}
+
+func WebSocket() {
+	time.Sleep(1 * time.Second)
+	fmt.Println("进入WebSocket...")
+
+	httpServerExitDone := &sync.WaitGroup{}
+	httpServerExitDone.Add(1)
+	httpSrv := startHttpServer(httpServerExitDone)
+
+	fmt.Println(httpSrv)
+
+	httpSrv.Shutdown(context.TODO())
+	httpServerExitDone.Wait()
+
+}
+
+func timer_start() {
+	time.AfterFunc(time.Second*3, func() {
+		fmt.Println("AfterFunc")
+		t := time.NewTicker(time.Second * 2)
+		defer t.Stop()
+		for range t.C {
+			fmt.Println("Ticker")
+			if timer_stop {
+				t.Stop()
+				timer_stop = false
+			}
+		}
+	})
+}
+
+func wss(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("进入wss")
+	if conn != nil {
+		fmt.Println("old conn killed:", conn)
+		conn.Close()
+	}
+	conn, _, _, _ = ws.UpgradeHTTP(r, w)
+	var msg_receive []byte
+	fmt.Println("new conn creative:", conn)
+	//defer conn.Close()
+	for {
+
+		msg_receive, op, _ = wsutil.ReadClientData(conn)
+
+		reg := regexp.MustCompile(`#rockage_cmds#(.+?)#rockage_datas#(.+)`)
+		match := reg.FindStringSubmatch(string(msg_receive))
+		var cmds, datas string
+
+		if match != nil {
+			cmds = match[1]
+			datas = match[2]
+			fmt.Println(cmds)
+			switch cmds {
+			case "start":
+				//fmt.Println("收到开始信号")
+				//timer_start()
+				sm("test111")
+			case "stop":
+
+				checkOrderDetail("1929002114233575918")
+			case "check":
+				cookies = datas
+				if checkCookies() {
+					//sm("后端Cookies验证通过!", conn, op)
+				} else {
+					//sm("后端Cookies验证失败!", conn, op)
+				}
+			case "reset":
+				o_list := checkSoldItems() //首先爬取“已卖出宝贝” 第1页（注：2020年4月淘宝改算法后只能爬取第1页）
+				if len(o_list) != 0 {
+					o_list = checkWuliu(o_list) //然后爬取物流下的“发货” 页（注：本页已包含了全部待发货订单）
+					for i, o := range o_list {  //最后o_list拼接完成，开始对其进行循环检测
+						var order_msg string = "不变"
+						if checkOrderExist(o["tb_id"]) == false {
+							order_msg = "新建"
+							updateSubOrder(updateMainOrder(o["tb_id"], true))
+						} else {
+							if checkOrderState(o["tb_id"]) == false {
+								order_msg = "更新"
+								updateMainOrder(o["tb_id"], false)
+							}
+						}
+
+						sm("订单(" + strconv.Itoa(i) + "):" + o["tb_id"] + "|" + o["state_id"] + "|" + order_msg)
+
+					}
+
+				} else {
+					//sm("ERR: order list.length = 0!", conn, op)
+					break
+				}
+
+			default:
+
+			}
+
+		}
+	}
+
+}
+
+func checkOrderState(tb_id string) bool {
+	return false
+}
+
+func updateSubOrder(order_id string) {
+	fmt.Println(order_id)
+}
+
+func updateMainOrder(tb_id string, addNew bool) string {
+	fmt.Println(tb_id, "---", addNew)
+	checkOrderDetail(tb_id)
+
+	return "10023"
+}
+
+func checkOrderExist(tb_id string) bool {
+	var SQL string
+	SQL = "SELECT id from ld_order where tb_id = '" + tb_id + "'"
+	fmt.Println(SQL)
+
+	var rst []map[string]string
+	var ret bool = false
+	rst, err := mysql_con.Query(SQL)
+	if err == nil {
+		if rst != nil {
+			ret = true
+			fmt.Println("Exist")
+		} else {
+			ret = false
+			fmt.Println("Not Exist")
+		}
+	}
+	return ret
+
+}
+
+func checkOrderDetail(tb_id string) {
+	//rnd := Random(5, 10)
+	//time.Sleep(time.Duration(rnd) * time.Second) //此处的time.Duration() 不能少
+	opts := []selenium.ServiceOption{
+		//selenium.Output(os.Stderr),
+	}
+
+	caps := selenium.Capabilities{ //chrome设置：
+		"browserName":      "chrome",
+		"pageLoadStrategy": "normal",
+	}
+
+	imagCaps := map[string]interface{}{
+		"profile.managed_default_content_settings.images": 2, //不加载图片
+	}
+
+	chromeCaps := chrome.Capabilities{
+		Prefs: imagCaps,
+		Path:  "",
+		Args: []string{
+			"--headless", // 设置Chrome无头模式
+			"--no-sandbox",
+			"--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_2) AppleWebKit/604.4.7 (KHTML, like Gecko) Version/11.0.2 Safari/604.4.7", // 模拟user-agent，防反爬
+		},
+	}
+
+	caps.AddChrome(chromeCaps)
+
+	service, err := selenium.NewChromeDriverService(seleniumPath, port, opts...)
+	if nil != err {
+		//fmt.Println("start a chromedriver service falid", err.Error())
+		return
+	}
+
+	// 调起chrome浏览器
+	wd, err := selenium.NewRemote(caps, fmt.Sprintf("http://localhost:%d/wd/hub", port))
+	if err != nil {
+		//fmt.Println("webDriver 调用失败", err.Error())
+		return
+	}
+
+	defer wd.Quit()
+
+	err = wd.Get("https://taobao.com")
+
+	//拆解cookies
+	s := strings.Split(cookies, ";")
+	var cks []map[string]string
+	for _, bv := range s {
+		reg := regexp.MustCompile(`(.+?)=(.+)`)
+		match := reg.FindStringSubmatch(bv)
+		if match != nil {
+			c := make(map[string]string)
+			c["Name"] = match[1]
+			c["Value"] = match[2]
+			cks = append(cks, c)
+		}
+	}
+	//设置cookies到selenium
+	for _, v := range cks {
+		session := &selenium.Cookie{
+			Name:   v["Name"],
+			Value:  v["Value"],
+			Expiry: math.MaxUint32,
+		}
+		session.Domain = ".taobao.com"
+		session.Path = "/"
+		session.Secure = false
+		wd.AddCookie(session)
+	}
+	//goto卖家中心
+	/*
+		element, err := wd.FindElement(selenium.ByXPATH, "//*[@id='J_SiteNavSeller']/div[1]/a/span")
+		if err != nil  {
+			panic(err)
+		} else {
+			element.Click()
+		}
+	*/
+	//爬已卖出的宝贝第1页：
+	err = wd.Get("https://trade.taobao.com/trade/detail/trade_order_detail.htm?biz_order_id=" + tb_id)
+	output, err := wd.PageSource()
+	reg := regexp.MustCompile(`var\sdata\s=\sJSON\.parse(.+)\s\S\/script>`) //返回的数据量比较大，只截取需要的部分
+	match := reg.FindStringSubmatch(output)
+	if match != nil {
+		output = match[1]
+	}
+	str := utf8ToString(output)
+	service.Stop()
+
+	reg = regexp.MustCompile(`"当前订单状态：(.+?)"`) //淘宝已登录特征
+	match = reg.FindStringSubmatch(str)
+	var state_id string
+	if match != nil {
+		switch match[1] {
+		case "买家已付款，等待商家发货":
+			state_id = "2"
+		case "商品已拍下，等待买家付款":
+			state_id = "1"
+		case "商家已发货，等待买家确认":
+			state_id = "3"
+		case "交易成功":
+			state_id = "3"
+		case "交易关闭":
+			state_id = "12"
+		}
+		fmt.Println(match[1] + " | " + state_id)
+
+	} else {
+		fmt.Println("订单详情解析失败。")
+	}
+
+}
+
+func checkWuliu(o_list []map[string]string) []map[string]string {
+	header := map[string]string{
+		"authority":                 "trade.taobao.com",
+		"method":                    "GET",
+		"path":                      "/trade/itemlist/list_sold_items.htm?action=itemlist/SoldQueryAction&event_submit_do_query=1&auctionStatus=PAID&tabCode=waitSend",
+		"scheme":                    "https",
+		"cache-control":             "max-age=0",
+		"content-length":            "0",
+		"content-type":              "application/x-www-form-urlencoded",
+		"origin":                    "https://trade.taobao.com",
+		"referer":                   "https://trade.taobao.com/trade/itemlist/list_sold_items.htm?spm=a313o.201708ban.favorite.d28.64f0197aImFB3E&mytmenu=ymbb",
+		"upgrade-insecure-requests": "1",
+		"user-agent":                "Mozilla/ 5.0(Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, Like Gecko) Chrome/55.0.2883.87 Safari/537.36",
+		"Cookie":                    cookies,
+	}
+	str := newReq("https://wuliu.taobao.com/user/order_list_new.htm?spm=a1z0f.3.0.0.5c993d42x4Krhd&order_status_show=send&nekot=g", "GET", header)
+	var re = regexp.MustCompile(`<span class="order-number">订单编号：(\d{1,})<\/span>`)
+	for _, m := range re.FindAllStringSubmatch(str, -1) {
+		rec := true
+		for _, o := range o_list { //物流页的每一个单号都需要在上一轮单号集合里轮询一次，如无则需要记录
+			if m[1] == o["tb_id"] {
+				rec = false
+			}
+		}
+		if rec == true {
+			w := make(map[string]string)
+			w["tb_id"] = m[1]
+			w["state_id"] = "2" //在物流页中发现的订单号默认为“买家已付款”状态
+			o_list = append(o_list, w)
+		}
+	}
+	return o_list
+}
+
+func checkSoldItems() []map[string]string {
+	header := map[string]string{
+		"authority":                 "trade.taobao.com",
+		"method":                    "GET",
+		"path":                      "/trade/itemlist/list_sold_items.htm",
+		"scheme":                    "https",
+		"cache-control":             "max-age=0",
+		"cookie":                    cookies,
+		"referer":                   "https://trade.taobao.com/trade/itemlist/list_sold_items.htm",
+		"sec-fetch-dest":            "document",
+		"sec-fetch-mode":            "navigate",
+		"sec-fetch-site":            "same-origin",
+		"sec-fetch-user":            "?1",
+		"upgrade-insecure-requests": "1",
+		"user-agent":                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.122 Safari/537.36",
+	}
+	str := newReq("https://trade.taobao.com/trade/itemlist/list_sold_items.htm", "GET", header)
+	var o_list []map[string]string = nil
+	var re = regexp.MustCompile(`bizOrderId=(\d{10,})".*?"text":"(等待买家付款|买家已付款|卖家已发货|交易成功|交易关闭|资金保护中)"`)
+	for _, m := range re.FindAllStringSubmatch(str, -1) {
+		switch m[2] {
+		case "等待买家付款":
+			m[2] = "1"
+		case "买家已付款":
+			m[2] = "2"
+		case "卖家已发货":
+			m[2] = "3"
+		case "交易成功":
+			m[2] = "3"
+		case "资金保护中":
+			m[2] = "3"
+		case "交易关闭":
+			m[2] = "12"
+		default:
+		}
+		o := make(map[string]string)
+		o["tb_id"] = m[1]
+		o["state_id"] = m[2]
+		o_list = append(o_list, o)
+	}
+	return o_list
+}
+
+func checkCookies() bool {
+	header := map[string]string{
+		"authority":                 "trade.taobao.com",
+		"method":                    "GET",
+		"path":                      "/trade/itemlist/list_sold_items.htm",
+		"scheme":                    "https",
+		"cache-control":             "max-age=0",
+		"cookie":                    cookies,
+		"referer":                   "https://trade.taobao.com/trade/itemlist/list_sold_items.htm",
+		"sec-fetch-dest":            "document",
+		"sec-fetch-mode":            "navigate",
+		"sec-fetch-site":            "same-origin",
+		"sec-fetch-user":            "?1",
+		"upgrade-insecure-requests": "1",
+		"user-agent":                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.122 Safari/537.36",
+	}
+	str := newReq("https://trade.taobao.com/trade/itemlist/list_sold_items.htm", "GET", header)
+	reg := regexp.MustCompile(`title\=\"发布宝贝\"`) //淘宝已登录特征
+	match := reg.FindStringSubmatch(str)
+	if match != nil {
+		return true
+	} else {
+		return false
+	}
+}
+
+func newReq(url string, method string, header map[string]string) string {
+	client := &http.Client{}
+	req, _ := http.NewRequest(method, url, nil)
+	for k, v := range header {
+		req.Header.Add(k, v)
+	}
+	res, _ := client.Do(req)
+	defer res.Body.Close()
+
+	// 查验服务器是否打开了gzip选项
+	var reader io.ReadCloser
+
+	switch res.Header.Get("Content-Encoding") {
+	case "gzip":
+		reader, _ = gzip.NewReader(res.Body)
+		defer reader.Close()
+	default:
+		reader = res.Body
+	}
+
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(reader)
+	str := buf.String()
+
+	reg := regexp.MustCompile(`\<meta\scharset\=\"UTF\-8\"\/\>`) //淘宝网未登录为UTF-8编码，已登录为GB2312编码
+
+	match := reg.FindStringSubmatch(str)
+	if match == nil {
+		str = UseNewEncoder(string(str), "gbk", "utf8") //已登录状态，需要将GB2312转为UTF8
+	}
+	//utf8编码转换为string:
+	s2 := []byte(str)
+	temp := make([]byte, 4)
+	var rec int16 = 0
+	var result []byte
+	var r_count int16 = 0
+	for _, v := range s2 {
+		if rec == 0 || rec == 1 {
+			result = append(result, v)
+		}
+		if v == 92 { // "\"符号
+			rec = 1
+			continue
+		}
+		if rec == 1 {
+			if v == 117 { //  "u" 字母
+				rec = 2
+			} else {
+				rec = 0
+			}
+			continue
+		}
+		if rec == 2 {
+			temp[r_count] = v
+			r_count++
+			if r_count > 3 {
+				utf8_code, _ := strconv.ParseInt(string(temp), 16, 32)
+				utf8_string := fmt.Sprintf("%c", utf8_code)
+				utf8_byte := []byte(utf8_string)
+				for _, vv := range utf8_byte {
+					result = append(result, vv)
+				}
+				rec = 0
+				r_count = 0
+			}
+		}
+	}
+	t := string(result)
+	reg = regexp.MustCompile(`\\u`) //去掉转义符: \u
+	t = reg.ReplaceAllString(t, "")
+	reg = regexp.MustCompile(`\\`) //去掉转义符: \
+	t = reg.ReplaceAllString(t, "")
+	return t
+
+}
+
+func sm(cmds string) {
+	var msg_send []byte = []byte(cmds)
+	err := wsutil.WriteServerMessage(conn, op, msg_send)
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func UseNewEncoder(src string, oldEncoder string, newEncoder string) string {
+	srcDecoder := mahonia.NewDecoder(oldEncoder)
+	desDecoder := mahonia.NewDecoder(newEncoder)
+	resStr := srcDecoder.ConvertString(src)
+	_, resBytes, _ := desDecoder.Translate([]byte(resStr), true)
+	return string(resBytes)
+}
+
+func Random(min int, max int) int {
+	rand.Seed(time.Now().Unix())
+	return min + rand.Intn(max-min)
+}
+
+func utf8ToString(str string) string {
+	//utf8编码转换为string:
+	s2 := []byte(str)
+	temp := make([]byte, 4)
+	var rec int16 = 0
+	var result []byte
+	var r_count int16 = 0
+	for _, v := range s2 {
+		if rec == 0 || rec == 1 {
+			result = append(result, v)
+		}
+		if v == 92 { // "\"符号
+			rec = 1
+			continue
+		}
+		if rec == 1 {
+			if v == 117 { //  "u" 字母
+				rec = 2
+			} else {
+				rec = 0
+			}
+			continue
+		}
+		if rec == 2 {
+			temp[r_count] = v
+			r_count++
+			if r_count > 3 {
+				utf8_code, _ := strconv.ParseInt(string(temp), 16, 32)
+				utf8_string := fmt.Sprintf("%c", utf8_code)
+				utf8_byte := []byte(utf8_string)
+				for _, vv := range utf8_byte {
+					result = append(result, vv)
+				}
+				rec = 0
+				r_count = 0
+			}
+		}
+	}
+	t := string(result)
+	reg := regexp.MustCompile(`\\u`) //去掉转义符: \u
+	t = reg.ReplaceAllString(t, "")
+	reg = regexp.MustCompile(`\\`) //去掉转义符: \
+	t = reg.ReplaceAllString(t, "")
+	return t
+}

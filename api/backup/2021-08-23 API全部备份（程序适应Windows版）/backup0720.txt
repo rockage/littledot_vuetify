@@ -1,0 +1,504 @@
+package main
+
+import (
+	"bytes"
+	"compress/gzip"
+	"fmt"
+	"github.com/axgle/mahonia" //GBK转UTF8工具
+	"github.com/gobwas/ws"     //Websocks工具
+	"github.com/gobwas/ws/wsutil"
+	"github.com/tebeka/selenium"
+	"github.com/tebeka/selenium/chrome"
+	"io"
+	"math"
+	"math/rand"
+	"mysql_con"
+	"net"
+	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+type Checker struct {
+	order_list []Main_Order
+	cookies    string
+	selenium   Selenium
+}
+
+type Main_Order struct {
+	tb_id       string
+	vendor      string
+	total_price string
+	date        string
+	note        string
+	address     string
+	state       string
+	Sub_Orders  []Sub_Order
+}
+
+type Sub_Order struct {
+	sub_id       string
+	p_name       string
+	p_vlotage    string
+	price        string
+	shipped_date string
+	express      string
+	tracking     string
+	state        int8
+}
+
+type Selenium struct {
+	wd         selenium.WebDriver
+	service    *selenium.Service
+	opts       []selenium.ServiceOption
+	caps       selenium.Capabilities
+	imagCaps   map[string]interface{}
+	chromeCaps chrome.Capabilities
+}
+
+func (c Checker) connected() bool {
+
+	sm("打开发货页面")
+	SleepRnd(1, 3)
+	c.selenium.wd.Get("https://wuliu.taobao.com/user/order_list_new.htm?order_status_show=send&mytmenu=fh&spm=a217wi.openworkbeachtb_web")
+	SleepRnd(1, 3)
+	sm("正在检查特征【我是卖家 物流管理 等待发货的订单】")
+	_, err := checker.selenium.wd.FindElement(selenium.ByXPATH, `//*[@id="J_Region"]/div[1]/div[1]`)
+
+	if err == nil {
+		return true
+	} else {
+		return false
+	}
+
+}
+
+func (c Checker) check() {
+	makeOrderList := func() {
+		SleepRnd(1, 3)
+		output, _ := c.selenium.wd.PageSource()
+		var re = regexp.MustCompile(`eyeAddress(\d{1,})`)
+		for _, m := range re.FindAllStringSubmatch(output, -1) {
+
+			fmt.Println("//*[@id='eyeAddress" + m[1] + "']")
+			element, _ := c.selenium.wd.FindElement(selenium.ByXPATH, "//*[@id='eyeAddress"+m[1]+"']")
+			SleepRnd(1, 3)
+			element.Click()
+
+		}
+		element, _ := checker.selenium.wd.FindElement(selenium.ByXPATH, "//*[@id='J_Express']")
+		fmt.Println(element.Text())
+
+	}
+	//--------------------------------------------------------------------------------
+	addNewMainOrder := func(order Main_Order) {
+		fmt.Println("addNewMainOrder")
+	}
+
+	//--------------------------------------------------------------------------------
+	updateSubOrder := func(order Main_Order, subOrder Sub_Order) {
+		fmt.Println("updateSubOrder")
+	}
+	//--------------------------------------------------------------------------------
+	getSubOrderDetail := func(order Main_Order) {
+
+	}
+	//--------------------------------------------------------------------------------
+	compareMainOrders := func(order Main_Order) string {
+		var SQL string
+		SQL = "SELECT id,state_id from ld_order where tb_id = '" + order.tb_id + "'"
+		var rst []map[string]string
+		rst, err := mysql_con.Query(SQL)
+		if err == nil {
+			if rst != nil {
+				//订单已存在，判断state是否一致？
+				if rst[0]["state_id"] != order.state {
+					return "更新"
+				}
+			} else {
+				return "新增"
+			}
+		}
+		return "不变"
+	}
+	//--------------------------------------------------------------------------------
+	// 主体：
+	cc := 0
+	if cc == 1 {
+		t := Main_Order{}
+		tt := Sub_Order{}
+		addNewMainOrder(t)
+		updateSubOrder(t, tt)
+		getSubOrderDetail(t)
+		compareMainOrders(t)
+
+	}
+
+	if c.connected() == true {
+		makeOrderList() //创建订单列表
+		/*
+			if len(c.order_list) != 0 {
+				for i, o := range c.order_list {
+					msg := compareMainOrders(o)
+					sm("订单(" + strconv.Itoa(i) + "):" + o.tb_id + "|" + o.state + "|" + msg)
+
+					switch msg {
+					case "新增":
+						//o.tb_id = "1350419306143620488"
+						//getSubOrderDetail(o)
+
+					}
+					break
+				}
+			} else {
+				sm("ERR: 订单长度为0，抓取失败。")
+			}
+
+		*/
+
+	} else {
+		sm("ERR: 【发货】页打开失败。")
+	}
+}
+
+//-----------------------------------------------------------------------------------------------------------
+// 全局变量、常量：
+const (
+	seleniumPath = `D:\Sync\Code\littledot_vuetify\api\chromedriver_win32\chromedriver.exe`
+	port         = 9515
+)
+
+var conn net.Conn //全局conn
+var checker Checker
+
+var timer_stop bool
+var state = 0 //0: 停机 1：正常循环 2：忙
+
+func WebSocket() {
+
+	// 初始化Checker
+	checker = Checker{
+		cookies: "",
+	}
+
+	// 初始化 Websocks
+	var httpSrv *http.Server
+	httpSrv = &http.Server{Addr: ":8082"}
+	http.HandleFunc("/", wss)
+	httpSrv.ListenAndServe() //代码置于此行之后将不被执行，因为协程已经被Listen起来了
+
+}
+
+func timer_start() {
+	time.AfterFunc(time.Second*3, func() {
+		fmt.Println("AfterFunc")
+		t := time.NewTicker(time.Second * 2)
+		defer t.Stop()
+		for range t.C {
+			fmt.Println("Ticker")
+			if timer_stop {
+				t.Stop()
+				timer_stop = false
+			}
+		}
+	})
+}
+
+func startWsServer(w http.ResponseWriter, r *http.Request) net.Conn {
+	conn, _, _, _ = ws.UpgradeHTTP(r, w)
+	return conn
+}
+
+func wss(w http.ResponseWriter, r *http.Request) {
+
+	// 开始连接Websocks
+	if conn != nil {
+		fmt.Println("old conn killed:", conn)
+		conn.Close()
+	}
+
+	wsExitDone := &sync.WaitGroup{}
+	wsExitDone.Add(1)
+	conn := startWsServer(w, r)
+
+	var msg_receive []byte
+
+	fmt.Println("new conn creative:", conn)
+	//defer conn.Close()
+	for {
+
+		msg_receive, _, _ = wsutil.ReadClientData(conn)
+		msg_str := string(msg_receive)
+
+		if msg_str != "" {
+			reg := regexp.MustCompile(`#rockage_cmds#(.+?)#rockage_datas#(.+)`)
+			match := reg.FindStringSubmatch(string(msg_receive))
+
+			if match != nil {
+				cmds := match[1]
+				datas := match[2]
+				fmt.Println(cmds)
+				switch cmds {
+				case "start":
+
+					checker.check()
+
+				case "stop":
+					//checkOrderDetail("1929002114233575918")
+				case "check":
+
+					if checker.selenium.service != nil {
+						checker.selenium.service.Stop() //退出之前的selenium实例
+					}
+					// 初始化Selenium
+					checker.selenium.opts = []selenium.ServiceOption{
+						//selenium.Output(os.Stderr),
+					}
+					checker.selenium.caps = selenium.Capabilities{ //chrome设置：
+						"browserName":      "chrome",
+						"pageLoadStrategy": "normal",
+					}
+					checker.selenium.imagCaps = map[string]interface{}{
+						"profile.managed_default_content_settings.images": 2, //不加载图片
+					}
+					checker.selenium.chromeCaps = chrome.Capabilities{
+						Prefs: checker.selenium.imagCaps,
+						Path:  "",
+						Args: []string{
+							//"--headless", // 设置Chrome无头模式
+							"--no-sandbox",
+							"--user-agent=Mozilla/ 5.0(Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, Like Gecko) Chrome/55.0.2883.87 Safari/537.36", // 模拟user-agent，防反爬
+						},
+					}
+					checker.selenium.caps.AddChrome(checker.selenium.chromeCaps)
+					checker.selenium.service, _ = selenium.NewChromeDriverService(seleniumPath, port, checker.selenium.opts...)
+					checker.selenium.wd, _ = selenium.NewRemote(checker.selenium.caps, fmt.Sprintf("http://localhost:%d/wd/hub", port))
+					checker.cookies = datas
+					//defer checker.selenium.wd.Quit()
+					sm("访问https://taobao.com")
+					checker.selenium.wd.Get("https://taobao.com")
+					// 第三步：设置Cookies
+					sm("拆解Cookies...")
+					s := strings.Split(checker.cookies, ";")
+					var cks []map[string]string
+					for _, bv := range s {
+						reg := regexp.MustCompile(`(.+?)=(.+)`)
+						match := reg.FindStringSubmatch(bv)
+						if match != nil {
+							c := make(map[string]string)
+							c["Name"] = match[1]
+							c["Value"] = match[2]
+							cks = append(cks, c)
+						}
+					}
+					sm("将Cookies聚合到Selenium")
+					for _, v := range cks {
+						session := &selenium.Cookie{
+							Name:   v["Name"],
+							Value:  v["Value"],
+							Expiry: math.MaxUint32,
+						}
+						session.Domain = ".taobao.com"
+						session.Path = "/"
+						session.Secure = false
+						checker.selenium.wd.AddCookie(session)
+					}
+					var element selenium.WebElement
+					var err error
+					sm("定位 【搜索】 框")
+					element, _ = checker.selenium.wd.FindElement(selenium.ByXPATH, "//*[@id='q']")
+					element.SendKeys(strconv.Itoa(Random(100, 999)))
+					SleepRnd(1, 3) //随机延时1-3秒
+					sm("随机输入100-999数字")
+					element.Click()
+					SleepRnd(1, 3) //随机延时1-3秒
+					sm("定位 【卖家中心】 ")
+					element, _ = checker.selenium.wd.FindElement(selenium.ByXPATH, `//*[@id="J_SiteNavSeller"]`)
+					SleepRnd(1, 3)
+					//element.MoveTo(Random(1, 10), Random(1, 10)) //鼠标随机指向x,y像素点
+					element.MoveTo(5, 5) //鼠标随机指向x,y像素点
+					SleepRnd(1, 3)
+					sm("MoveTo() 【卖家中心】 完毕")
+					//checker.selenium.wd.Click(LeftButton) // 模拟按下鼠标左键
+					element.Click()
+					sm("检查 【发货】 按钮")
+					element, err = checker.selenium.wd.FindElement(selenium.ByXPATH, `//*[@id="module-open-aside"]/div/div/div/div/ul/li[6]/div[2]/p[1]/span`)
+					if err == nil {
+						SleepRnd(1, 3)
+						sm("打开 【发货】 页面")
+						checker.selenium.wd.Get("https://wuliu.taobao.com/user/order_list_new.htm?order_status_show=send&mytmenu=fh&spm=a217wi.openworkbeachtb_web")
+						SleepRnd(1, 3)
+						sm("检查特征 【我是卖家 物流管理 等待发货的订单】")
+						element, err = checker.selenium.wd.FindElement(selenium.ByXPATH, `//*[@id="J_Region"]/div[1]/div[1]`)
+						if err == nil {
+							sm("连接成功")
+						} else {
+							sm("连接失败")
+						}
+
+					} else {
+						sm("ERR: 【发货】页打开失败。")
+					}
+
+				case "reset":
+
+				default:
+
+				} // switch
+			} // match != nil
+		} // msg_str != ""
+	} // for
+
+}
+
+func sm(msg string) {
+	var msg_send []byte = []byte(msg)
+	wsutil.WriteServerMessage(conn, ws.OpText, msg_send)
+}
+
+func newReq(url string, method string, header map[string]string) string {
+	client := &http.Client{}
+	req, _ := http.NewRequest(method, url, nil)
+	for k, v := range header {
+		req.Header.Add(k, v)
+	}
+	res, _ := client.Do(req)
+	defer res.Body.Close()
+
+	// 查验服务器是否打开了gzip选项
+	var reader io.ReadCloser
+
+	switch res.Header.Get("Content-Encoding") {
+	case "gzip":
+		reader, _ = gzip.NewReader(res.Body)
+		defer reader.Close()
+	default:
+		reader = res.Body
+	}
+
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(reader)
+	str := buf.String()
+
+	reg := regexp.MustCompile(`\<meta\scharset\=\"UTF\-8\"\/\>`) //淘宝网未登录为UTF-8编码，已登录为GB2312编码
+
+	match := reg.FindStringSubmatch(str)
+	if match == nil {
+		str = UseNewEncoder(string(str), "gbk", "utf8") //已登录状态，需要将GB2312转为UTF8
+	}
+	//utf8编码转换为string:
+	s2 := []byte(str)
+	temp := make([]byte, 4)
+	var rec int16 = 0
+	var result []byte
+	var r_count int16 = 0
+	for _, v := range s2 {
+		if rec == 0 || rec == 1 {
+			result = append(result, v)
+		}
+		if v == 92 { // "\"符号
+			rec = 1
+			continue
+		}
+		if rec == 1 {
+			if v == 117 { //  "u" 字母
+				rec = 2
+			} else {
+				rec = 0
+			}
+			continue
+		}
+		if rec == 2 {
+			temp[r_count] = v
+			r_count++
+			if r_count > 3 {
+				utf8_code, _ := strconv.ParseInt(string(temp), 16, 32)
+				utf8_string := fmt.Sprintf("%c", utf8_code)
+				utf8_byte := []byte(utf8_string)
+				for _, vv := range utf8_byte {
+					result = append(result, vv)
+				}
+				rec = 0
+				r_count = 0
+			}
+		}
+	}
+	t := string(result)
+	reg = regexp.MustCompile(`\\u`) //去掉转义符: \u
+	t = reg.ReplaceAllString(t, "")
+	reg = regexp.MustCompile(`\\`) //去掉转义符: \
+	t = reg.ReplaceAllString(t, "")
+	return t
+
+}
+
+func UseNewEncoder(src string, oldEncoder string, newEncoder string) string {
+	srcDecoder := mahonia.NewDecoder(oldEncoder)
+	desDecoder := mahonia.NewDecoder(newEncoder)
+	resStr := srcDecoder.ConvertString(src)
+	_, resBytes, _ := desDecoder.Translate([]byte(resStr), true)
+	return string(resBytes)
+}
+
+func Random(min int, max int) int {
+	rand.Seed(time.Now().Unix())
+	return min + rand.Intn(max-min)
+}
+
+func SleepRnd(min int, max int) {
+	rand.Seed(time.Now().Unix())
+	time.Sleep(time.Duration(min+rand.Intn(max-min)) * time.Second)
+}
+
+func utf8ToString(str string) string {
+	//utf8编码转换为string:
+	s2 := []byte(str)
+	temp := make([]byte, 4)
+	var rec int16 = 0
+	var result []byte
+	var r_count int16 = 0
+	for _, v := range s2 {
+		if rec == 0 || rec == 1 {
+			result = append(result, v)
+		}
+		if v == 92 { // "\"符号
+			rec = 1
+			continue
+		}
+		if rec == 1 {
+			if v == 117 { //  "u" 字母
+				rec = 2
+			} else {
+				rec = 0
+			}
+			continue
+		}
+		if rec == 2 {
+			temp[r_count] = v
+			r_count++
+			if r_count > 3 {
+				utf8_code, _ := strconv.ParseInt(string(temp), 16, 32)
+				utf8_string := fmt.Sprintf("%c", utf8_code)
+				utf8_byte := []byte(utf8_string)
+				for _, vv := range utf8_byte {
+					result = append(result, vv)
+				}
+				rec = 0
+				r_count = 0
+			}
+		}
+	}
+	t := string(result)
+	reg := regexp.MustCompile(`\\u`) //去掉转义符: \u
+	t = reg.ReplaceAllString(t, "")
+	reg = regexp.MustCompile(`\\`) //去掉转义符: \
+	t = reg.ReplaceAllString(t, "")
+	return t
+}
+
+//rnd := Random(5, 10)
+//time.Sleep(time.Duration(rnd) * time.Second) //此处的time.Duration() 不能少
+//goto卖家中心

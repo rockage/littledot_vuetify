@@ -1,0 +1,53 @@
+<html>
+<body>
+<div style = "width:3000px;height:3000px">Hello World!</div>
+</body>
+</html>
+
+<script>
+// 解锁专用记录脚本，读取iframe内的内容
+    var o = document.createElement("TEXTAREA");
+    o.id = "div2";
+    o.style =
+        "width: 100%;height:120px;white-space:normal;word-break:break-all;word-wrap:break-word; ";
+    document.body.appendChild(o);
+
+    var r = "";
+    var b = true;
+
+    var aa = window[1].document
+
+    aa.onmousemove = function(e) {
+        if (b == true) {
+	      r = r + "Move#" + e.clientX + "#" + e.clientY +  "#\n";
+	      console.log("Move#" + e.clientX + "#" + e.clientY)
+            o.value = r;
+        }
+    };
+
+    aa.onmousedown = function(e) {
+        if (b == true) {
+            if (e.buttons == 1) {
+                r = r + "ButtonDown" + "\n";
+            } else {
+                b = false;
+            }
+        }
+    };
+
+    aa.onmouseup = function(e) {
+        if (b == true) {
+            r = r + "ButtonUp" + "\n";
+        }
+    };
+    aa.onscroll = function() {
+        if (b == true) {
+            var x =
+                document.documentElement.scrollLeft || document.body.scrollLeft;
+            var y = document.documentElement.scrollTop;
+            var scrollup = document.getElementById("scrollup");
+            r = r + "Scroll#" + x + "#" + y + "#" + "\n";
+            o.value = r;
+        }
+    };
+</script>

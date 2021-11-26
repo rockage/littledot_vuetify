@@ -1,0 +1,37 @@
+####窗口切换
+			windows, _ := Selenium.wd.WindowHandles()
+			Selenium.wd.SwitchWindow(windows[1])
+			teste := Selenium.CheckElement(`//*[@id="fm-login-password"]`, 1)
+			teste.Click()
+			Sleep(2000, 3000)
+			Selenium.wd.SwitchWindow(windows[0])
+			teste = Selenium.CheckElement(`//*[@id="q"]`, 1)
+			teste.Click()
+
+			for _, v := range windows {
+				fmt.Println(v)
+			}
+
+
+#### 已卖出的宝贝页面的滑块
+1： 直接切入baxia frame用相对坐标执行脚本，对页面的body而言，其实就是轨迹产生了瞬移
+2： 因为人类真实用鼠标是做不到这种瞬移操作的，从body -> frame这段路径，无论如何都会产生轨迹
+3： 对霸下来说，一旦产生这种轨迹瞬移现象，则判为机器人
+4： 而baxia frame，位置会变化(一天内不会变，但跨天会变)，因此不能用一个固定的偏移量将baxia frame的坐标和body的绝对坐标直接联系
+5： 第4点解释了，为什么同一个解锁脚本，昨天能用，但今天就失效了，因为baxia frame位置改变了
+6： 解决方案：
+	1：做一个脚本，普通版本，让轨迹从body开始，一直移动到baxia frame的左上角（即baxia frame的0,0位置）
+	2：做第二个脚本，解锁专用脚本，从baxia-frame的0，0入场，直到解锁成功
+	3：首先执行第一个脚本，然后用Location()拿到baxia-frame的绝对坐标：(x1,y1)
+	4：第二个脚本执行方法：从文件中读取出来的相对坐标(x0,y0) 加上 (x1,y1) ，即相当于将脚本内的相对坐标翻译成body的绝对坐标
+	5：因为第一个脚本的结束点，和第二个脚本的起始点位置不会偏差太大，因此不会被判为鼠标瞬移
+以上方案失败，淘宝并非依靠这个简单逻辑判断是否机器人，而是看你的鼠标轨迹是否由底层win32(或x11)api触发而来，
+相当于按键精灵的前后台脚本的区别，如果后台脚本无法实现，那么headless肯定也无法实现，实在不行只能在服务器运行有头浏览器了。
+后继方案，考虑采用gorobot做前台硬脚本
+
+#### Centos下运行要点
+1. 本机要安装Chrome，这就意味着本机还要装一个x11桌面环境，centos下为gnome
+2. Selenium配置需要改为Linux Chromedriver核
+3. chromedriver 一定要 chmod 777 chromedriver，否则报错
+4. 用joevnc普通账号登录，否则chrome起不来
+5. go代码必须通过ftp直接传到joevnc的家目录再重新编译，不能直接拷贝root的

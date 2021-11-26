@@ -1,0 +1,315 @@
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html" />
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>每日发货列表</title>
+  </head>
+
+  <body>
+    <script src="./public/vue.min.js"></script>
+    <script src="./public/axios.min.js"></script>
+    <script src="./public/clipboard.min.js"></script>
+    <style>
+      .dialog {
+        background: LightSkyBlue;
+        border-style: solid;
+        border-color: #eaeced #d6d8d9 #bebfc1 #d6d8d9;
+        border-radius: 8px;
+      }
+    </style>
+
+    <div id="viewer" style="margin-top:20px;">
+
+
+
+
+
+      <!-- 以下div代表一条订单数据 -->
+      <div
+        style="display: flex;flex-direction: row; flex-wrap: wrap;margin-bottom: 12px;border-style: solid;border-color: #eaeced #d6d8d9 #34495e #d6d8d9;width: 100%;"
+        bgcolor="#e6e6e6"
+        onmouseover='this.style.backgroundColor="#FFFFFF"'
+        onmouseout='this.style.backgroundColor="#e6e6e6"'
+        v-for="item in orders"
+        
+      >
+        <div style="display: flex;flex-direction: column;justify-content: center;min-width: 5%;background-color: #16A085;">
+          <div style="font-size: small;">{{ item.date }}</div>
+        </div>
+        <div style="display: flex;flex-direction: column;justify-content: center;min-width: 5%;background-color: #1ABC9C;text-align: center;">
+          <div>{{ item.vendor }}</div>
+        </div>
+
+        <div style="display: flex;flex-direction: column;justify-content:space-around;flex-grow:1;">
+          <div
+            style="display: flex;flex-direction: row; flex-wrap: wrap;text-align: left;background-color: #ecf0f1;cursor: pointer; "
+            :style="{ color: p.color }"
+            v-for="p in item.sub_order"
+            @mouseenter="onMouseHover"
+            @mouseleave="onMouseLeave"
+            @click="
+                  onDialogShow(
+                    item.address,
+                    p.item_describe,
+                    p.sub_order_id,
+                    p.state
+                  )
+                "
+          >
+            <div style="width: 65%;font-size:x-large">{{ p.item_describe }}</div>
+            <div style="width: 20%;font-size:large">{{ p.voltage }}</div>
+            <div style="width: 10%;font-size:large">{{ p.amount }}</div>
+            <div style="width: 5%;font-size:large">{{ p.state }}</div>
+          </div>
+
+          <div style="text-align: left;background-color: #cccccc;">{{ item.note }}</div>
+
+          <div style="text-align: left;background-color: #bbbbbb;">
+            <div  class="cli" @click="showTip" :data-clipboard-text="item.pureAddress">
+              {{ item.address }}
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+        <div class="dialog" style="width: 80%;position:fixed; left: 8%;top:20%;" v-show="dialogShow">
+        <div style="display: flex;flex-direction: column;align-items:center;">
+          <div class="dialog" style="width: 95%;margin: 10px;">{{ dialogMsg1 }}</div>
+          <div class="dialog" style="width: 95%;margin: 10px;">{{ dialogMsg2 }}</div>
+
+          <div style="display: flex;flex-direction: row;justify-content: flex-end;width: 95%;margin: 10px;">
+            <button style="width: 100px; height: 50px; font-size: medium;margin-right: 20px;" @click="onDialogConfirm">
+              {{ dialogMsg3 }}
+            </button>
+
+            <button style="width: 100px; height: 50px; font-size: medium" @click="onDialogHide">
+              关闭
+            </button>
+          </div>
+        </div>
+      </div>
+
+
+           <div style="width: 95%;height:30px;top:95%;position:fixed;background: #2E3C50;color:#F1C40F;text-align: center;"
+           v-show="tipShow">地址已经复制
+      <div>
+
+
+    </div>
+  </body>
+</html>
+<script>
+  var clipboard = new ClipboardJS(".cli") // 剪贴板库
+
+  Vue.prototype.axios = axios
+  axios.defaults.withCredentials = true
+  axios.defaults.baseURL = "https://rockage.net/api/"
+  //axios.defaults.baseURL = "http://192.168.0.2:8081/"
+
+  let vue = new Vue({
+    el: "#viewer",
+    data() {
+      return {
+        timer: "",
+        timer2:"",
+        dialogShow: false,
+        tipShow:false,
+        dialogMsg1: "",
+        dialogMsg2: "",
+        dialogMsg3: "",
+        old_element: Object,
+        old_color: "",
+        sub_order_id: "",
+        state_id: "",
+        orders: [
+          {
+            id: "",
+            state_id: "",
+            date: "",
+            vendor: "",
+            sub_order: [
+              {
+                sub_order_id: "",
+                item_describe: "",
+                amount: "",
+                voltage: "",
+                color: "",
+                state: "",
+                price: "",
+                order_id: "",
+              },
+            ],
+            note: "",
+            address: "",
+            pureAddress: "", //没有淘宝ID的纯地址
+          },
+        ],
+      }
+    },
+    computed: {},
+    methods: {
+      color: function(state_id) {
+        switch (state_id) {
+          case "1":
+            return "Red" //未：
+            break
+          case "2":
+            return "#27ae60" //待：
+            break
+          case "3":
+            return "Magenta" //已：
+            break
+          case "4":
+            return "#D35400" //包：
+            break
+          case "12":
+            return "Grey" //关：
+            break
+          default:
+            return "Black" //
+        }
+      },
+
+      onDialogConfirm: function() {
+        let me = this
+        let param = new URLSearchParams()
+        param.append("suborder_id", this.sub_order_id)
+        param.append("state_id", this.state_id)
+
+        axios.post("updatePackets", param).then((response) => {
+          if (response.data == "sucess") {
+            me.initView()
+          }
+        })
+
+        this.dialogShow = false
+      },
+
+
+
+      showTip: function() {
+        this.tipShow=true
+        let vm=this
+        setTimeout(function()  {
+          vm.tipShow = false
+         }, 3000);
+      },
+
+      onDialogHide: function() {
+        this.dialogShow = false
+      },
+
+      onDialogShow: function(address, item_describe, sub_order_id, state) {
+        let me = this
+        if (state.indexOf("已") != -1) {
+          // 已经发货的子订单不能再打包
+          return
+        }
+        this.dialogMsg1 = "地址：" + address
+        this.dialogMsg2 = "品名：" + item_describe
+
+        var state_id
+        if (state.indexOf("待") != -1) {
+          // 已经发货的子订单不能再打包
+          this.dialogMsg3 = "确定打包"
+          state_id = "4"
+        } else {
+          this.dialogMsg3 = "取消打包"
+          state_id = "2"
+        }
+        this.sub_order_id = sub_order_id
+        this.state_id = state_id
+        this.dialogShow = true
+      },
+
+      onMouseHover: function(e) {
+        this.old_element = e
+        this.old_color = e.srcElement.style.color
+        e.srcElement.style.color = "rgb(0, 30, 255)" //文字改为蓝色
+      },
+
+      onMouseLeave: function() {
+        this.old_element.srcElement.style.color = this.old_color //还原颜色
+      },
+
+      initView: function() {
+        let me = this
+        axios
+          .get("getOrdersForViewer", {
+            params: {},
+          })
+          .then((response) => {
+            if (response.data == "") {
+              me.orders = []
+              return
+            }
+            me.orders = JSON.parse(response.data)
+            let i, j, v, pl, p, c
+            for (i in me.orders) {
+              const regex = /(.+?)\s\d{1,2}:\d{1,2}:\d{1,2}/gm
+              let m = regex.exec(me.orders[i].date)
+              me.orders[i].date = m[1]
+
+              let str = me.orders[i].address // 去掉源地址的一些无关内容：
+              str = str.replace(/86-/g, "")
+              str = str.replace(/{.+?}/g, "")
+              str = str.replace(/\\r\\n|\\n|\\r/g, "")
+              str = str.replace(/\s+/g, "")
+              str = str.replace(/[,|，| ]\d{6,8}$/g, "")
+              me.orders[i].pureAddress = str
+
+              me.orders[i].sub_order = [] // 处理子订单
+              pl = me.orders[i].p_info.split(",")
+              for (j in pl) {
+                p = pl[j].split("|")
+                if (me.orders[i].state_id == "1" || me.orders[i].state_id == "12") {
+                  //两个特殊情况：当主订单状态为1(未)或12(关)的时候，产品列表沿用主订单状态的颜色
+                  c = me.color(me.orders[i].state_id)
+                } else {
+                  c = me.color(p[4])
+                }
+                me.orders[i].sub_order.push({
+                  sub_order_id: p[0],
+                  item_describe: p[1],
+                  amount: p[2] + "\n",
+                  voltage: p[3] + "\n",
+                  color: c,
+                  state: p[5] + "\n",
+                  price: p[6] + "\n",
+                  order_id: me.orders[i].order_id,
+                })
+              }
+              me.orders[i].color = me.color(me.orders[i].state_id)
+              delete me.orders[i].p_info //这几个属性解析之后就没用了，可以删除
+            }
+          })
+      },
+    },
+    watch: {
+
+    },
+    mounted: function() {
+      this.initView()
+
+      this.timer = setInterval(this.initView, 180000) // 3分钟刷新一次
+
+    },
+  })
+
+  clipboard.on("success", function(e) {})
+
+  function closeWindow() {
+    window.opener = null
+    window.open(" ", "_self", " ")
+    window.close()
+  }
+</script>
+<style>
+  .dialog {
+    font-size: large;
+    width: 50%;
+  }
+</style>

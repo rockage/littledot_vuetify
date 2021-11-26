@@ -1,0 +1,696 @@
+package main
+
+import (
+	//	"bufio"
+	"fmt"
+	"github.com/gobwas/ws" //Websocks工具
+	"github.com/gobwas/ws/wsutil"
+	"github.com/tebeka/selenium"
+	"github.com/tebeka/selenium/chrome"
+	"io/ioutil"
+	"math/rand"
+	"mysql_con"
+	"net"
+	"net/http"
+	"os"
+	"regexp"
+	"strconv"
+	"time"
+)
+
+type Struct_Checker struct {
+	order_list []Main_Order
+	selenium   Selenium
+}
+
+type Main_Order struct {
+	id          string
+	tb_id       string
+	vendor      string
+	total_price string
+	date        string
+	note        string
+	address     string
+	state       string
+	Sub_Orders  []Sub_Order
+}
+
+type Sub_Order struct {
+	sub_id       string
+	p_id         string
+	p_name       string
+	p_voltage    string
+	price        string
+	shipped_date string
+	express      string
+	tracking     string
+	state        string
+	amount       string
+}
+
+type Selenium struct {
+	wd      selenium.WebDriver
+	service *selenium.Service
+}
+
+func (s Selenium) SlowKeys(str string, element selenium.WebElement) {
+	c := []byte(str)
+	i := 0
+	for { // 模拟输入用户名
+		element.SendKeys(string(c[i]))
+		i++
+		if i >= len(c) {
+			break
+		}
+		Sleep(200, 400) // 随机暂停一下
+	}
+}
+
+func (s Selenium) CheckElement(strCond string, timeOut int) selenium.WebElement {
+	// 根据条件判断元素是否存在
+	var element selenium.WebElement
+	var cond selenium.Condition // selenium的复杂条件模块：等待，直到条件成立或超时
+	cond = func(wd selenium.WebDriver) (bool, error) {
+		wd = s.wd
+		element, _ = s.wd.FindElement(selenium.ByXPATH, strCond)
+		if element != nil {
+			return true, nil
+		} else {
+			return false, nil
+		}
+	}
+	err := s.wd.WaitWithTimeout(cond, time.Duration(timeOut)*time.Second) // 限定时间内找不到指定元素，err != nil
+	if err != nil {
+		return nil
+	} else {
+		return element //如果找到元素，返回这个元素
+	}
+}
+
+func (s Selenium) CheckLogin() bool {
+	// 登录状态检查
+	sm("打开 【发货】 URL")
+	Sleep(1000, 3000)
+	s.wd.Get("https://wuliu.taobao.com/user/order_list_new.htm?order_status_show=send&mytmenu=fh&spm=a217wi.openworkbeachtb_web")
+	sm("检查特征 【物流管理 等待发货的订单】... (5秒超时)")
+	element := s.CheckElement(`//*[@id="J_Region"]/div[1]/div[1]`, 5)
+	if element == nil {
+		sm("目前浏览器不在登录状态")
+		return false
+	} else {
+		sm("目前浏览器处于登录状态")
+		return true
+	}
+
+}
+
+func (s Selenium) ClickSms(smscode string) {
+	// 输入短信验证码并点击 （由外层WSS触发）
+	Sleep(1000, 2000)
+	x_base := Rnd(1, 1024)
+	y_base := Rnd(1, 768)
+	html := s.CheckElement(`/html`, 30) // 此处加载较慢，超时设为30S
+	Sleep(2000, 5000)
+	html.MoveTo(x_base, y_base) //在1024*768范围内随机落点
+	Sleep(2000, 5000)
+	html.MoveTo(331, 252) // 短信输入框
+	Sleep(100, 300)
+	s.wd.ButtonDown()
+	Sleep(100, 300)
+	s.wd.ButtonUp()
+	c := []byte(smscode)
+	i := 0
+	for {
+		// 模拟输入验证码，此处需要在没有指定元素的情况下强行向界面输入字符
+		s.wd.KeyDown(string(c[i]))
+		i++
+		if i >= len(c) {
+			break
+		}
+		Sleep(100, 200)
+	}
+	Sleep(5000, 6000)
+	html.MoveTo(362, 329) // 确定按钮
+	Sleep(100, 300)
+	s.wd.ButtonDown()
+	Sleep(100, 300)
+	s.wd.ButtonUp()
+}
+
+func (s Selenium) Login() bool {
+	// 登录
+	CheckStates := func() bool {
+		// 多重状态检测函数， 返回值：false=错误 true=短信界面 OR 卖家界面
+		var smsDiv selenium.WebElement = nil
+		var salerCenter selenium.WebElement = nil
+		var cond selenium.Condition // 因为是双重条件（是否出现短信验证或者直接转到了卖家中心），此处需要自定义个条件判断器
+		cond = func(wd selenium.WebDriver) (bool, error) {
+			wd = s.wd
+			smsDiv, _ = s.wd.FindElement(selenium.ByXPATH, `//*[@id="content"]/div/div[1]/iframe`)                                        // 注意这是包裹短信验证iframe的外层div
+			salerCenter, _ = s.wd.FindElement(selenium.ByXPATH, `//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`) // 卖家中心特征码
+			if smsDiv != nil || salerCenter != nil {                                                                                      // 两者只要其中一个不为空，都算 “找到了”
+				return true, nil
+			} else {
+				return false, nil
+			}
+		}
+		err := s.wd.WaitWithTimeout(cond, 60*time.Second) // 限定时间内找不到指定元素，err != nil
+		if err == nil {
+			if salerCenter != nil {
+				sm("成功进入卖家中心，登录成功!")
+				return true
+			} else {
+				if smsDiv != nil {
+					sm("进入短信验证界面，准备获取短信验证码")
+					// 此处比较特殊，淘宝网在这里使用了iframe框架，Selenium的SwitchFrame容易发生找不到iframe隐藏元素的问题
+					// 因此改为从html总元素开始利用绝对坐标的方式点击获取短信按钮
+					Sleep(1000, 2000)
+					x_base := Rnd(1, 1024)
+					y_base := Rnd(1, 768)
+					html := s.CheckElement(`/html`, 30) // 此处加载较慢，超时设为30S
+					Sleep(2000, 5000)
+					html.MoveTo(x_base, y_base) //在1024*768范围内随机落点
+					Sleep(100, 300)
+					html.MoveTo(593, 251) //获取短信按钮
+					Sleep(100, 300)
+					s.wd.ButtonDown()
+					Sleep(100, 300) // 不能到了位置马上松开鼠标，需要一点延时
+					s.wd.ButtonUp()
+					Sleep(1000, 2000)
+					// 因为Login运行在协程，所以外层的WSS函数仍然可以响应Websocks传过来的数据
+					ok := s.CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`, 60) // 卖家中心特征
+					// 我们有60S的时间去处理验证码，界面变成卖家中心: return true，60S仍然没进入卖家中心: return false
+					if ok != nil {
+						return true
+					} else {
+						return false
+					}
+				}
+			}
+		} else {
+			sm("发生意外，既没进入短信验证，也未进入卖家中心，登录失败")
+		}
+		return false
+	}
+
+	Submit := func() {
+		submit_button := s.CheckElement(`//*[@id="fm-login-password"]`, 5) // 最外层元素
+		Sleep(300, 500)
+		submit_button.Click()
+		Sleep(300, 500)
+		submit_button.SendKeys(string('\ue007'))
+	}
+
+	// ***** Login 函数主体 *****：
+	sm("自动跳转到https://login.taobao.com")
+	sm("尝试密码登录")
+	element := s.CheckElement(`//*[@id="fm-login-id"]`, 5) // 用户名框
+
+	if element != nil {
+		element.Click()
+		Sleep(100, 500)
+		s.SlowKeys("sword_yang:carol", element) // 缓慢输入用户名
+
+	} else {
+		sm("【严重错误】 没有检测到用户名输入框，登录失败")
+		return false // 如果连用户名框、密码输入框和确定按钮都无法出现，大概率是发生了譬如断网等严重故障，直接返回false
+	}
+	element = s.CheckElement(`//*[@id="fm-login-password"]`, 5) // 密码框
+	if element != nil {
+		Sleep(500, 1000)
+		s.SlowKeys("kkndcc110", element) // 缓慢输入密码
+	} else {
+		sm("【严重错误】 没有检测到密码输入框，登录失败")
+		return false
+	}
+
+	element = s.CheckElement(`//*[@id="baxia-dialog-content"]`, 5) // 滑块
+	if element != nil {
+		sm("检测到滑块，开始尝试解锁")
+		Slip := func(t int) bool {
+			sm("开始第" + strconv.Itoa(t) + "次滑动解锁...")
+			Sleep(1000, 2000)
+			x_base := 920
+			y_base := 425
+			html := s.CheckElement(`/html`, 5) // 最外层元素
+			html.MoveTo(x_base, y_base)        //落点不能是0，0
+			s.wd.ButtonDown()
+			html.MoveTo(1178, 425)
+			Sleep(300, 500) // 不能到了位置马上松开鼠标，需要一点延时
+			s.wd.ButtonUp()
+			Sleep(1000, 2000)
+			sm("滑动结束，检查是否有效...")
+			R := false
+			ok1 := s.CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`, 10) // 检测有没有进入卖家中心
+			if ok1 == nil {
+				// 拉完之后有可能需要点一次提交:
+				Submit()
+				ok2 := s.CheckElement(`//*[@id="module-open-aside"]/div/div/div/div/ul/li[2]/div[2]/p[1]/span`, 10) // 检测有没有进入卖家中心
+				if ok2 == nil {
+					R = false
+				} else {
+					R = true
+				}
+			} else {
+				R = true
+			}
+			if R {
+				sm("第" + strconv.Itoa(t) + "次解锁成功！")
+				return true
+			} else {
+				sm("第" + strconv.Itoa(t) + "次解锁失败！")
+				return false
+			}
+
+		}
+		// 规律：淘宝网一旦出现滑块，第一次大概率是不管用的，这种情况需要进行一个卖家中心的超时判断(短暂的)，
+		// 如果发现没有反应，则点一次提交按钮，滑块就会再次出现，然后再进行多次解锁
+		slip_count := 0
+		for {
+			slip_count++
+			if slip_count >= 3 {
+				sm("连续解锁失败，换用二维码登录...")
+				break
+			}
+			if Slip(slip_count) == true {
+				break
+			}
+		}
+
+		if CheckStates() == true {
+			return true
+		} else {
+			sm("滑块解锁2次失败，尝试改用二维码登录...")
+		}
+
+	} else {
+		sm("没有检测到滑块，继续...")
+		Submit() //按下确定按钮，正常情况下，没有滑动条出现，因此offset_y 设为0
+		if CheckStates() == true {
+			return true
+		} else {
+			sm("没有检测到滑块但也未登录成功，尝试用二维码登录...")
+		}
+	}
+	Sleep(500, 1000)
+	sm("开始用二维码登录...")
+	element = s.CheckElement(`//*[@id="login"]/div[1]/i`, 5) // 二维码登录按钮
+	if element != nil {
+		Sleep(1000, 3000)
+		element.Click()
+		pic, _ := s.wd.Screenshot()
+		ioutil.WriteFile("pic.bmp", pic, 0644) //截图存盘
+		// 将图片发送到前端，手动拍照后，等待系统自动跳转到 “卖家中心” 或者 “短信验证”
+		sm("图片已发送到前端，请扫码...")
+		if CheckStates() == true {
+			return true
+		} else {
+			sm("二维码失效或其他问题，登录失败...")
+			return false
+		}
+	} else {
+		sm("【严重错误】 没有检测到二维码，登录失败")
+		return false // 发生了无法显示二维码的情况，返回false
+	}
+}
+
+func (s Selenium) RegexpWuliu(str string) []Main_Order {
+	//物流页正则
+
+	var orders []Main_Order
+	var re = regexp.MustCompile(`订单编号：[\s\S]+?发货[\r\n]`)
+	match := re.FindAllStringSubmatch(str, -1)
+
+	orders = make([]Main_Order, len(match))
+	for k, v := range match {
+
+		r := regexp.MustCompile(`订单编号：(\d{1,})[\r\n]创建时间：(.+?)[\r\n]`)
+		m := r.FindStringSubmatch(v[0])
+
+		if len(m) > 0 {
+			orders[k].tb_id = m[1]
+			orders[k].date = m[2]
+			orders[k].vendor = "84" //自营
+			orders[k].state = "2"   //待发货
+		}
+
+		r = regexp.MustCompile(`收货信息：[\r\n](.+?)[\r\n]`)
+		m = r.FindStringSubmatch(v[0])
+		// 合成淘宝风格收货地址：
+		r_add := regexp.MustCompile(`(.+?)\s{1,}(.+?),.+?,\s{0,}(.+?),\s{0,}(\d{1,})`)
+		m_add := r_add.FindStringSubmatch(m[1])
+
+		r = regexp.MustCompile(` `)
+		trim_space := r.ReplaceAllString(m_add[2], "") //去掉原文里的空格
+
+		address := "{" + m_add[1] + "}" + " " + m_add[3] + "，" + m_add[4] + "，" + trim_space
+		orders[k].address = address
+
+		r = regexp.MustCompile(`买家留言：[\r\n](.+?)[\r\n]`)
+		m = r.FindStringSubmatch(v[0])
+		if len(m) > 0 {
+			orders[k].note = m[1]
+		}
+
+		var suborders []Sub_Order
+		r = regexp.MustCompile(`[\r\n](.+?)[\r\n](颜色分类：\s(.+?)[\r\n]){0,1}(\d{1,}).\d{1,}×\s(\d{1,})`)
+		mg := r.FindAllStringSubmatch(v[0], -1) //注意：返回match组，要用FindAllStringSubmatch并加上-1参数
+		if len(mg) > 0 {
+			suborders = make([]Sub_Order, len(mg))
+			var total_price int
+			for k2, m2 := range mg {
+				suborders[k2].p_name = m2[1] + m2[3]
+				suborders[k2].p_voltage = "1" //国规
+				p, _ := strconv.Atoi(m2[4])   //单价
+				q, _ := strconv.Atoi(m2[5])   //数量
+				intPrice := p * q
+				total_price += intPrice
+				strPrice := strconv.Itoa(intPrice)
+				suborders[k2].price = strPrice
+				suborders[k2].shipped_date = ""
+				suborders[k2].express = ""
+				suborders[k2].tracking = ""
+				suborders[k2].state = "2"
+				suborders[k2].amount = m2[5]
+			} //for
+			orders[k].total_price = strconv.Itoa(total_price) // 订单总价
+			orders[k].Sub_Orders = suborders
+		} // if
+	} // for
+	return orders
+}
+
+func (s Selenium) Check() {
+
+	makeOrderList := func() {
+		if s.CheckLogin() {
+			page_count := 0
+			page_text := ""
+			for {
+				page_count++
+				sm("开始循环抓取发货第" + strconv.Itoa(page_count) + "页")
+				element_page := s.CheckElement(`//*[@id="J_Region"]/div[1]/div[1]`, 5) // 确定发货页面已加载完毕
+				if element_page != nil {
+					Sleep(1000, 3000)
+					sm("正在点开本页面全部小眼睛")
+					output, _ := s.wd.PageSource()
+					var re = regexp.MustCompile(`eyeAddress(\d{1,})`) // 通过正则合成带小眼睛元素
+					for _, m := range re.FindAllStringSubmatch(output, -1) {
+						element, _ := s.wd.FindElement(selenium.ByXPATH, "//*[@id='eyeAddress"+m[1]+"']") // 点击小眼睛
+						Sleep(500, 1000)
+						element.Click()
+					}
+					Sleep(500, 1000)
+					element, _ := s.wd.FindElement(selenium.ByXPATH, "//*[@id='J_Express']") // 页面文字
+					str, _ := element.Text()
+					page_text = page_text + str
+					element_nextpage := s.CheckElement(`//*[@id="J_Express"]/tfoot/tr/td/div[2]/div/a[2]/span`, 5) //下一页按钮
+					if element_nextpage == nil {
+						sm("已无法找到 “下一页” 按钮，主订单创建结束")
+						fmt.Println(output)
+						var re = regexp.MustCompile(`(?m)订单编号：(.+?)[\r\n]创建时间：(.+?)[\r\n](.+?)[\r\n](颜色分类：\s(.+?)[\r\n]){0,1}(.+?)×\s(.+?)[\r\n]收货信息：[\r\n](.+?)\s{1,}(.+?),(.+?),\s{1,}(.+?),\s{0,}(.+?)[\r\n]买家选择：[\r\n]快递[\r\n]物流公司：[\r\n]未选物流公司[\r\n](买家留言：[\r\n](.+?)[\r\n]){0,1}发货[\r\n]`)
+						match := re.FindAllStringSubmatch(page_text, -1)
+						for k, v := range match {
+							fmt.Println("key=", k)
+							fmt.Println("len(v)=", len(v))
+						}
+
+						break
+					} else {
+						element_nextpage.Click()
+					}
+
+				} else {
+					sm("异常：无法加载 “下一页” 页面，抓单失败")
+				}
+			} // for 循环检测发货页
+			sm("循环结束，开始对原始数据进行正则解析...")
+			// Call RegexpWuliu
+			sm("正则解析结束")
+
+		} else {
+			sm("异常：目前程序没有处于发货页状态，抓单失败")
+		}
+	}
+
+	// ***** Check函数主体 *****：
+	sm("cls") // 客户端清屏
+	if s.CheckLogin() == true {
+		makeOrderList() //创建订单列表
+
+	} else {
+		sm("ERR: 【发货】页打开失败。")
+	}
+}
+
+// ***** 全局变量、常量 ***** ：
+var Conn net.Conn //全局Conn
+var Checker Struct_Checker
+var timer_stop bool
+var state = 0 //0: 停机 1：正常循环 2：忙
+
+func WebSocket() {
+	// 初始化Checker
+	Checker = Struct_Checker{}
+	// 初始化 Websocks
+	var httpSrv *http.Server
+	httpSrv = &http.Server{Addr: ":8082"}
+	http.HandleFunc("/", WSS)
+	httpSrv.ListenAndServe() //代码置于此行之后将不被执行，因为协程已经被Listen起来了
+}
+
+func WSS(w http.ResponseWriter, r *http.Request) {
+	// Websocks程序主体处理
+	if Conn != nil {
+		fmt.Println("Old Conn Destroyed:", Conn)
+		Conn.Close()
+	}
+
+	Conn := startWsServer(w, r)
+	var msg_receive []byte
+	fmt.Println("New Conn Created:", Conn)
+
+	for {
+
+		msg_receive, _, _ = wsutil.ReadClientData(Conn)
+		msg_str := string(msg_receive)
+
+		if msg_str == "" {
+			continue
+		}
+
+		reg := regexp.MustCompile(`#rockage_cmds#(.+?)#rockage_datas#(.+)`)
+		match := reg.FindStringSubmatch(string(msg_receive))
+
+		if match == nil {
+			continue
+		}
+
+		cmds := match[1]
+		datas := match[2]
+		fmt.Println(cmds)
+
+		switch cmds {
+		case "start":
+
+			Checker.selenium.Check()
+
+		case "stop":
+
+			filename := "page_text.txt"
+
+			f, _ := os.Open(filename)
+			defer f.Close()
+
+			b, _ := ioutil.ReadAll(f)
+			s := string(b)
+
+			r := regexp.MustCompile(`\r`)
+			trim_n := r.ReplaceAllString(s, "") //去掉原文里的\r
+
+			// 生成订单列表（页面端）
+			var selenium_page Selenium
+			orders := selenium_page.RegexpWuliu(trim_n)
+
+			// 调用小红旗以确定卖家留言和实际价格
+			// -----------------------PS: 本功能暂时没有实现 -----------------------
+
+			// 预读产品库 (后期会频繁用到)
+			type Product_List struct {
+				p_id      string
+				p_name    string
+				p_tb_name string
+			}
+			SQL := "select id, name, tb_name from ld_products"
+			rst, _ := mysql_con.Query(SQL)
+			var ProductList = make([]Product_List, len(rst))
+			for k, v := range rst {
+				ProductList[k].p_id = v["id"]
+				ProductList[k].p_name = v["name"]
+				ProductList[k].p_tb_name = v["tb_name"]
+			}
+
+			// 生产订单列表（mysql端）
+			type Orders_Mysql struct { // 从mysql扫描出来的订单继承自Main_Order
+				Main_Order
+				Flag int // 增加了flag，以返回订单处理状态，注意大写，否则不可写
+			}
+
+			SQL = "SELECT id, date, price, tb_id, note, address, state_id,(SELECT group_concat(id,'|',item_describe,'|', product_id, '|', amount,'|', voltage,'|', state,'|', price) FROM ld_order_suborder where ld_order_suborder.order_id = ld_order.id) as p_info FROM ld_order where state_id = 2 and tb_id <> ''"
+			rst, _ = mysql_con.Query(SQL)
+			var OrdersMysql = make([]Orders_Mysql, len(rst))
+			for k, v := range rst {
+				OrdersMysql[k].id = v["id"]
+				OrdersMysql[k].tb_id = v["tb_id"]
+				OrdersMysql[k].total_price = v["price"]
+				OrdersMysql[k].date = v["date"]
+				OrdersMysql[k].note = v["note"]
+				OrdersMysql[k].address = v["address"]
+				OrdersMysql[k].state = v["state"]
+
+				r := regexp.MustCompile(`(.+?),`)         // 切分逗号，返回组，样本：7769|MK2 6J1(普)|2|2|1|2|1460,7770|MK3|6|3|2|2|3840
+				m := r.FindAllString(v["p_info"]+",", -1) // 末端加个逗号以能适配正则（PS:这是一个简化处理方案）
+				SubOrders := make([]Sub_Order, len(m))
+				for k1, v1 := range m {
+					r := regexp.MustCompile(`(\d{1,})\|(.+?)\|(\d{1,})\|(\d{1,})\|(\d{1,})\|(\d{1,})\|(\d{1,})`) // 切分 | 号，返回值
+					m = r.FindStringSubmatch(v1)
+					SubOrders[k1].sub_id = m[1]
+					SubOrders[k1].p_name = m[2]
+					SubOrders[k1].p_id = m[3]
+					SubOrders[k1].amount = m[4]
+					SubOrders[k1].p_voltage = m[5]
+					SubOrders[k1].state = m[6]
+					SubOrders[k1].price = m[7]
+				}
+				OrdersMysql[k].Sub_Orders = SubOrders
+			}
+			// 比对1：页面 -> mySQL (页面有而数据库没有，则新增这条订单到数据库)
+			for _, page := range orders {
+				addNew := true
+				for _, mysql := range OrdersMysql {
+					if page.tb_id == mysql.tb_id {
+						addNew = false
+						break
+					}
+				}
+				if addNew {
+					var neworder Orders_Mysql
+					neworder.Main_Order = page //新增订单数据来源自页面订单
+					neworder.Flag = 1          // 改变新增订单的flag = 1 , PS: 1=新增 2=屏蔽 3=修改
+					OrdersMysql = append(OrdersMysql, neworder)
+					fmt.Println("新增：", page.tb_id)
+				}
+			}
+			// 比对2：mySQL -> 页面 （数据库有而页面没有，则在数据库中取消这条订单）
+			for k, mysql := range OrdersMysql {
+				disable := true
+				for _, page := range orders {
+					if mysql.tb_id == page.tb_id {
+						disable = false
+						break
+					}
+				}
+				if disable {
+					OrdersMysql[k].Flag = 2 // 此订单需要屏蔽
+					fmt.Println("屏蔽：", mysql.tb_id)
+				}
+			}
+
+		case "check":
+			if Checker.selenium.wd != nil {
+				if Checker.selenium.CheckLogin() == true {
+					sm("state suceess")
+				} else {
+					sm("state error!")
+					go Checker.selenium.Login()
+				}
+			} else {
+				sm("没有检测到Selenium")
+			}
+
+		case "restart":
+			if Checker.selenium.service != nil {
+				Checker.selenium.service.Stop() //停止之前的selenium实例
+			}
+			startChrome() // 初始化Selenium
+
+		case "login":
+			go Checker.selenium.Login() // 采用协程方式运行Login，否则将会造成阻塞而无法接收WSS传回来的短信验证码
+
+		case "sms":
+			Checker.selenium.ClickSms(datas)
+
+		default:
+
+		}
+
+	}
+}
+
+func startWsServer(w http.ResponseWriter, r *http.Request) net.Conn {
+	Conn, _, _, _ = ws.UpgradeHTTP(r, w)
+	return Conn
+}
+
+func startTimer() {
+	time.AfterFunc(time.Second*3, func() {
+		fmt.Println("AfterFunc")
+		t := time.NewTicker(time.Second * 2)
+		defer t.Stop()
+		for range t.C {
+			fmt.Println("Ticker")
+			if timer_stop {
+				t.Stop()
+				timer_stop = false
+			}
+		}
+	})
+}
+
+func startChrome() {
+	opts := []selenium.ServiceOption{}
+	caps := selenium.Capabilities{
+		"browserName":      "chrome",
+		"pageLoadStrategy": "eager",
+	}
+	imagCaps := map[string]interface{}{
+		"profile.managed_default_content_settings.images": 2,
+	}
+	chromeCaps := chrome.Capabilities{
+		Prefs: imagCaps,
+		Path:  "",
+		Args: []string{
+			//"--headless",
+			"--no-sandbox",
+			"--disable-blink-features=AutomationControlled",
+			"--user-agent=Mozilla/ 5.0(Windows NT 10.0; WOW64) Chrome/55.0.2883.87 Safari/537.36",
+		},
+	}
+	caps.AddChrome(chromeCaps)
+	Checker.selenium.service, _ = selenium.NewChromeDriverService("./chromedriver/windows/chromedriver.exe", 9515, opts...)
+	Checker.selenium.wd, _ = selenium.NewRemote(caps, fmt.Sprintf("http://localhost:%d/wd/hub", 9515))
+	sm("打开淘宝网首页...")
+	Checker.selenium.wd.Get("https://taobao.com")
+	ok := Checker.selenium.CheckElement(`//*[@id="q"]`, 10) // 检测进入首页
+	if ok != nil {
+		sm("正确访问淘宝网首页，selenium初始化成功")
+	} else {
+		sm("无法访问淘宝网首页，selenium初始化失败！")
+	}
+
+}
+
+func sm(msg string) {
+	var msg_send []byte = []byte(msg)
+	wsutil.WriteServerMessage(Conn, ws.OpText, msg_send)
+}
+
+func Rnd(min int, max int) int { // 随机数产生器
+	rand.Seed(time.Now().Unix())
+	return min + rand.Intn(max-min)
+}
+
+func Sleep(min int, max int) { // 随机延时产生器
+	rand.Seed(time.Now().Unix())
+	time.Sleep(time.Duration(min+rand.Intn(max-min)) * time.Millisecond) // 毫秒
+}

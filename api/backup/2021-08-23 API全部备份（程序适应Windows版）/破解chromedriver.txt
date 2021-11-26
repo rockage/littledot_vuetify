@@ -1,0 +1,66 @@
+--------------2021-07-25----------------
+淘宝的登陆界面，滑块有两个特征，
+第一种是selenium被识别出来的惩罚性滑块：
+element = CheckElement(`//*[@id="login-form"]/div[3]`, 5) // 滑块
+碰到这种情况，就不需要折腾了，这个滑块根本就是用来糊弄你的，即使不用程序控制，真人去滑也没用，永远报错
+
+第二种情况是selenium没有被识别出来，也就是所谓正常登录的时候：
+//*[@id="nc_2_n1z"]
+//*[@id="nc_2_n1t"]
+//*[@id="baxia-password"]/div
+
+//*[@id="baxia-password"]
+//*[@id="baxia-dialog-content"]
+//*[@id="login-form"]/div[3]/div[1]
+//*[@id="login-form"]/div[3]
+//*[@id="nocaptcha-password"]
+
+--------------2021-07-21----------------
+一、改造chromedriver
+1. 备份chromedriver.exe
+2. 访问https://hexed.it/  （一个简单易用的在线hex编辑器）
+3. 打开 chromedriver.exe
+4. 搜索关键字：$cdc_
+5. 找到之后，会看到这样的结构： '$cdc_xxxxxxx_';
+6. 两个下划线之间的 xxxxxxx 是一个字符串，随便将它改成别的什么，注意：字符内容可以随便填，但是字符数量一定要和原本一致
+7. 存盘退出
+8. 点击刚才修改过的chromedriver.exe，如果跟以前一样弹出一个窗口，说明修改成功，否则会报错。
+
+二、修改window.navigator.webdriver属性值
+1. 在selenium驱动chromedriver执行.get方法之后，立即注入一段JS脚本
+2. 方法：
+driver.get("https://login.taobao.com")
+# 定义js代码
+script = "Object.defineProperty(navigator,'webdriver',{get: ()=> false,});"
+# 执行js代码
+driver.execute_script(script)
+
+以上方案貌似无效，最终是靠这个方案成功的：
+checker.selenium.chromeCaps = chrome.Capabilities{
+	Prefs: checker.selenium.imagCaps,
+	Path:  "",
+	Args: []string{
+	//"--headless", // 设置Chrome无头模式
+	"--no-sandbox",
+	"--disable-blink-features=AutomationControlled", //反侦测最关键是这行，它能将navigator.webdriver设为false
+	"--user-agent=Mozilla/ 5.0(Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, Like Gecko) Chrome/55.0.2883.87 Safari/537.36", 
+	},
+}
+
+
+
+碰到需要短信验证的场合：
+验证码输入框：//*[@id="J_Phone_Checkcode"]
+获取验证码按钮：//*[@id="J_GetCode"]
+确定按钮：//*[@id="submitBtn"]
+
+--------------2021-07-24----------------
+用firefox作为浏览器：
+1. 本机安装firefox
+2. 本机firefox安装selenium ide插件
+3. https://www.selenium.dev/downloads/ 下载 selenium-server-standalone，应该是一个java程序
+4. https://www.java.com/en/download/windows_manual.jsp 安装java
+方案失败
+
+
+

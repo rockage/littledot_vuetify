@@ -1,0 +1,50 @@
+<html>
+<body>
+<div style = "width:3000px;height:3000px">Hello World!</div>
+</body>
+</html>
+
+<script>
+    var o = document.createElement("TEXTAREA");
+    o.id = "div2";
+    o.style =
+        "width: 100%;height:120px;white-space:normal;word-break:break-all;word-wrap:break-word; ";
+    document.body.appendChild(o);
+
+    var r = "";
+    var b = true;
+
+    document.onmousemove = function(e) {
+        if (b == true) {
+            //r = r + "Move#" + e.clientX + "#" + "\n";
+	      r = r + "Move#" + e.clientX + "#" + e.clientY +  "#\n";
+            o.value = r;
+        }
+    };
+
+    document.onmousedown = function(e) {
+        if (b == true) {
+            if (e.buttons == 1) {
+                r = r + "ButtonDown" + "\n";
+            } else {
+                b = false;
+            }
+        }
+    };
+
+    document.onmouseup = function(e) {
+        if (b == true) {
+            r = r + "ButtonUp" + "\n";
+        }
+    };
+    document.onscroll = function() {
+        if (b == true) {
+            var x =
+                document.documentElement.scrollLeft || document.body.scrollLeft;
+            var y = document.documentElement.scrollTop;
+            var scrollup = document.getElementById("scrollup");
+            r = r + "Scroll#" + x + "#" + y + "#" + "\n";
+            o.value = r;
+        }
+    };
+</script>
